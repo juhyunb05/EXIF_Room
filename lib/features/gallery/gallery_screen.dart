@@ -256,7 +256,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
   }
 
   Widget _buildEmptyState() {
-    return const SliverFillRemaining(
+    return const SliverToBoxAdapter(
       child: SizedBox.shrink(),
     );
   }
