@@ -41,6 +41,21 @@
     For more details:
     * https://docs.flutter.dev/platform-integration/web/initialization
   -->
+  <script src="https://cdn.jsdelivr.net/npm/heic2any@0.0.4/dist/heic2any.min.js"></script>
+  <script>
+    window.convertHeicToJpeg = async function(heicBlobUrl) {
+      try {
+        const response = await fetch(heicBlobUrl);
+        const blob = await response.blob();
+        const jpegBlob = await heic2any({ blob: blob, toType: "image/jpeg", quality: 1.0 });
+        const finalBlob = Array.isArray(jpegBlob) ? jpegBlob[0] : jpegBlob;
+        return URL.createObjectURL(finalBlob);
+      } catch (e) {
+        console.error('HEIC conversion error: ', e);
+        throw e;
+      }
+    };
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>
