@@ -34,7 +34,7 @@ class PosterCanvas extends StatelessWidget {
         children: [
           const SizedBox(height: 200),
           Padding(
-            padding: EdgeInsets.symmetric(horizontal: isPreview ? 20 : 200),
+            padding: const EdgeInsets.symmetric(horizontal: 200),
             child: RotatedBox(
               quarterTurns: imageRotation,
               child: webImageBytes != null
