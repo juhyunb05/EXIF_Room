@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:heic_to_png_jpg/heic_to_png_jpg.dart';
+import 'package:cross_file/cross_file.dart';
+import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 
@@ -41,6 +43,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   Future<void> _pickImage() async {
     String? selectedPath;
+    String? selectedName;
 
     if (kIsWeb) {
       final picker = ImagePicker();
@@ -49,6 +52,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
         imageQuality: 100,
       );
       selectedPath = image?.path;
+      selectedName = image?.name;
     } else if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
       final typeGroup = const XTypeGroup(
         label: 'Images',
@@ -56,6 +60,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
       );
       final file = await openFile(acceptedTypeGroups: <XTypeGroup>[typeGroup]);
       selectedPath = file?.path;
+      selectedName = file?.name;
     } else {
       final picker = ImagePicker();
       final image = await picker.pickImage(
@@ -63,12 +68,45 @@ class _GalleryScreenState extends State<GalleryScreen> {
         imageQuality: 100,
       );
       selectedPath = image?.path;
+      selectedName = image?.name;
     }
 
     if (selectedPath != null) {
       String currentPath = selectedPath;
-      final extension = p.extension(currentPath).toLowerCase();
+      final extension = p.extension(selectedName ?? currentPath).toLowerCase();
       
+      if (kIsWeb && (extension == '.heic' || extension == '.heif')) {
+        try {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('HEIC 파일을 JPG로 변환 중입니다. 잠시만 기다려주세요...')),
+            );
+          }
+          final response = await http.get(Uri.parse(currentPath));
+          final heicBytes = response.bodyBytes;
+          
+          final jpgBytes = await HeicConverter.convertToJPG(
+            heicData: heicBytes,
+            quality: 100,
+          );
+          
+          final jpgXFile = XFile.fromData(
+            jpgBytes,
+            mimeType: 'image/jpeg',
+            name: (selectedName ?? 'image.heic').replaceAll(RegExp(r'\.hei[cf]$', caseSensitive: false), '.jpg'),
+          );
+          currentPath = jpgXFile.path;
+        } catch (e) {
+          debugPrint('Failed to convert HEIC on Web: $e');
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('HEIC 파일 변환에 실패했습니다: $e')),
+            );
+          }
+          return;
+        }
+      }
+
       if (!kIsWeb && (extension == '.heic' || extension == '.heif')) {
         try {
           final outputPath = await HeicConverter.convertFile(

@@ -5,11 +5,20 @@ import 'package:http/http.dart' as http;
 import 'package:exif/exif.dart' as exif_lib;
 import 'package:intl/intl.dart';
 
+import 'dart:typed_data';
+import 'package:flutter/foundation.dart';
+
 import '../models/exif_data.dart';
 
 class ExifService {
   static Future<ExifData> extractExif(String imagePath) async {
-    final fileBytes = await XFile(imagePath).readAsBytes();
+    Uint8List fileBytes;
+    if (kIsWeb) {
+      final response = await http.get(Uri.parse(imagePath));
+      fileBytes = response.bodyBytes;
+    } else {
+      fileBytes = await XFile(imagePath).readAsBytes();
+    }
     final tags = await exif_lib.readExifFromBytes(fileBytes);
 
     if (tags.isEmpty) {
