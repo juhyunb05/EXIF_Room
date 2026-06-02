@@ -43,3 +43,11 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Database and Logs (Privacy / Debug data)
+*.hive
+*.lock
+*.isar
+*.db
+*.sqlite
+error_log.txt
