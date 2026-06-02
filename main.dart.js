@@ -113998,7 +113998,7 @@ return A.G(A.aMc(p),$async$ze)
 case 2:if(!p.a4M(0))p.a6i(new A.V1(),t.W3)
 if(!p.a4M(1))p.a6i(new A.Rv(),t.gi)
 s=3
-return A.G(p.Gj("posterProjectsBox",t.W3),$async$ze)
+return A.G(p.Gj("posterProjectsBox_v2",t.W3),$async$ze)
 case 3:q.a=b
 return A.K(null,r)}})
 return A.L($async$ze,r)},
