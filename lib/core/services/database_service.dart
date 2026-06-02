@@ -6,7 +6,7 @@ import '../models/exif_data.dart';
 import '../models/poster_project.dart';
 
 class DatabaseService {
-  static const String _boxName = 'posterProjectsBox';
+  static const String _boxName = 'posterProjectsBox_v2';
   late Box<PosterProject> box;
 
   static final DatabaseService _instance = DatabaseService._internal();
