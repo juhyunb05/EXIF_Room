@@ -127,7 +127,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
             itemRect: itemRect,
             onDelete: () async {
               Navigator.pop(context);
-              await DatabaseService().deleteProject(project.id);
+              if (project.id != null) {
+                await DatabaseService().deleteProject(project.id!);
+              }
               _loadProjects();
             },
           );
@@ -271,7 +273,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
           return Builder(
             builder: (itemContext) {
               return Hero(
-                tag: project.id,
+                tag: project.id ?? project.hashCode,
                 child: GestureDetector(
                   onTap: () => _viewImage(project.exportedImagePath ?? project.originalImagePath),
                   onLongPress: () {
@@ -389,7 +391,7 @@ class _ProjectContextMenuState extends State<_ProjectContextMenu> with SingleTic
                 );
               },
               child: Hero(
-                tag: widget.project.id,
+                tag: widget.project.id ?? widget.project.hashCode,
                 child: GestureDetector(
                   onTap: () => Navigator.pop(context),
                   child: Container(

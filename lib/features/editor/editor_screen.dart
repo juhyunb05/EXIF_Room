@@ -82,11 +82,22 @@ class _EditorScreenState extends State<EditorScreen> {
       }
       final double imageHeight = 2400 / ratio;
       
-      // Calculate lines needed for camera name (approx 16 chars per line at 120px)
+      // Accurately calculate the height of the info section
       int nameLength = (_currentExif.cameraName ?? "UNKNOWN CAMERA").length;
       int nameLines = (nameLength / 16).ceil();
       if (nameLines < 1) nameLines = 1;
-      final double textHeight = (120.0 * nameLines) + 40 + 80;
+      
+      double leftHeight = 56.0 + 72.0 + (100.0 * nameLines); // Name, spacer, date
+      if (_currentExif.cameraMake != null && _currentExif.cameraMake!.isNotEmpty) {
+        leftHeight += 80.0; // 56 text + 24 spacer
+      }
+      if (_currentExif.location != null && _currentExif.location!.isNotEmpty) {
+        leftHeight += 88.0; // 72 text + 16 spacer
+      }
+      
+      double rightHeight = 240.0; // 80 text + 80 spacer + 80 text
+      
+      final double textHeight = leftHeight > rightHeight ? leftHeight : rightHeight;
 
       // 200 (top) + image + 320 (middle) + dynamic text height + 320 (bottom)
       final double totalHeight = 200 + imageHeight + 320 + textHeight + 320;

@@ -1,22 +1,29 @@
-import 'package:isar/isar.dart';
+import 'package:hive/hive.dart';
 
 import 'exif_data.dart';
 
 part 'poster_project.g.dart';
 
-@collection
-class PosterProject {
-  Id id = Isar.autoIncrement;
+@HiveType(typeId: 0)
+class PosterProject extends HiveObject {
+  @HiveField(0)
+  int? id;
 
-  late String originalImagePath;
+  @HiveField(1)
+  String originalImagePath;
+  @HiveField(2)
   String? exportedImagePath;
 
-  late ExifData exif;
+  @HiveField(3)
+  ExifData exif;
 
-  late DateTime createdAt;
+  @HiveField(4)
+  DateTime createdAt;
+  @HiveField(5)
   bool exported = false;
 
   PosterProject({
+    this.id,
     required this.originalImagePath,
     this.exportedImagePath,
     required this.exif,
