@@ -452,10 +452,10 @@ class _ProjectContextMenuState extends State<_ProjectContextMenu> with SingleTic
                           onPressed: () {
                             Navigator.pop(context);
                             final path = widget.project.exportedImagePath ?? widget.project.originalImagePath;
-                            FileManagerService.shareOrSaveImage(path, Platform.isWindows, saveToDevice: true);
+                            FileManagerService.shareOrSaveImage(path, !kIsWeb && Platform.isWindows, saveToDevice: true);
                           },
                         ),
-                        if (!Platform.isWindows)
+                        if (!kIsWeb && !Platform.isWindows)
                           IconButton(
                             icon: const Icon(Icons.share_rounded, color: Colors.black87),
                             onPressed: () {
