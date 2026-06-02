@@ -1,12 +1,16 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_file_dialog/flutter_file_dialog.dart';
+import 'package:cross_file/cross_file.dart' as cross;
 
 class FileManagerService {
   static Future<String> copyToInternalStorage(String sourcePath) async {
+    if (kIsWeb) return sourcePath; // Web doesn't have internal app directory
+    
     final dir = await getApplicationDocumentsDirectory();
     final importedDir = Directory(p.join(dir.path, 'imported_images'));
     if (!await importedDir.exists()) {
@@ -22,7 +26,14 @@ class FileManagerService {
     return destinationPath;
   }
 
-  static Future<void> shareOrSaveImage(String imagePath, bool isWindows, {bool saveToDevice = false}) async {
+  static Future<void> shareOrSaveImage(String imagePath, bool isWindows, {bool saveToDevice = false, Uint8List? webBytes}) async {
+    if (kIsWeb && webBytes != null) {
+      // Trigger browser download
+      final xfile = cross.XFile.fromData(webBytes, name: imagePath, mimeType: 'image/jpeg');
+      await xfile.saveTo(imagePath);
+      return;
+    }
+
     if (isWindows) {
       final name = p.basename(imagePath);
       final ext = p.extension(imagePath).toLowerCase().replaceAll('.', '');
@@ -45,7 +56,7 @@ class FileManagerService {
       );
       await FlutterFileDialog.saveFile(params: params);
     } else {
-      await Share.shareXFiles([XFile(imagePath)], text: 'Check out my poster!');
+      await Share.shareXFiles([cross.XFile(imagePath)], text: 'Check out my poster!');
     }
   }
 }

@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -34,12 +35,19 @@ class PosterCanvas extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 200),
             child: RotatedBox(
               quarterTurns: imageRotation,
-              child: Image.file(
-                File(imagePath),
-                width: (imageRotation % 2 != 0) ? null : 2400,
-                height: (imageRotation % 2 != 0) ? 2400 : null,
-                fit: BoxFit.contain,
-              ),
+              child: kIsWeb 
+                ? Image.network(
+                    imagePath,
+                    width: (imageRotation % 2 != 0) ? null : 2400,
+                    height: (imageRotation % 2 != 0) ? 2400 : null,
+                    fit: BoxFit.contain,
+                  )
+                : Image.file(
+                    File(imagePath),
+                    width: (imageRotation % 2 != 0) ? null : 2400,
+                    height: (imageRotation % 2 != 0) ? 2400 : null,
+                    fit: BoxFit.contain,
+                  ),
             ),
           ),
           const SizedBox(height: 320),

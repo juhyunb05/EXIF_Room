@@ -1,5 +1,5 @@
 import 'dart:io';
-
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
@@ -42,7 +42,14 @@ class _GalleryScreenState extends State<GalleryScreen> {
   Future<void> _pickImage() async {
     String? selectedPath;
 
-    if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
+    if (kIsWeb) {
+      final picker = ImagePicker();
+      final image = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 100,
+      );
+      selectedPath = image?.path;
+    } else if (Platform.isWindows || Platform.isMacOS || Platform.isLinux) {
       final typeGroup = const XTypeGroup(
         label: 'Images',
         extensions: <String>['jpg', 'jpeg', 'png', 'gif', 'webp', 'bmp', 'heic', 'heif'],
@@ -62,20 +69,22 @@ class _GalleryScreenState extends State<GalleryScreen> {
       String currentPath = selectedPath;
       final extension = p.extension(currentPath).toLowerCase();
       
-      if (extension == '.heic' || extension == '.heif') {
+      if (!kIsWeb && (extension == '.heic' || extension == '.heif')) {
         try {
           final outputPath = await HeicConverter.convertFile(
             inputPath: currentPath,
             format: ImageFormat.jpg,
             quality: 100,
           );
-          currentPath = outputPath;
+          if (outputPath != null) {
+            currentPath = outputPath;
+          }
         } catch (e) {
           debugPrint('Failed to convert HEIC: $e');
         }
       }
 
-      final internalPath = await FileManagerService.copyToInternalStorage(currentPath);
+      final internalPath = kIsWeb ? currentPath : await FileManagerService.copyToInternalStorage(currentPath);
       final exif = await ExifService.extractExif(selectedPath);
       if (mounted) {
         final result = await Navigator.push(
@@ -404,10 +413,15 @@ class _ProjectContextMenuState extends State<_ProjectContextMenu> with SingleTic
                         ),
                       ],
                     ),
-                    child: Image.file(
-                      File(widget.project.exportedImagePath ?? widget.project.originalImagePath),
-                      fit: BoxFit.contain, // Maintain aspect ratio when scaled
-                    ),
+                    child: kIsWeb 
+                      ? Image.network(
+                          widget.project.exportedImagePath ?? widget.project.originalImagePath,
+                          fit: BoxFit.contain,
+                        )
+                      : Image.file(
+                          File(widget.project.exportedImagePath ?? widget.project.originalImagePath),
+                          fit: BoxFit.contain, // Maintain aspect ratio when scaled
+                        ),
                   ),
                 ),
               ),

@@ -1,5 +1,7 @@
 import 'dart:io';
 import 'dart:ui' as ui;
+import 'package:flutter/foundation.dart';
+import 'package:cross_file/cross_file.dart';
 import 'package:intl/intl.dart';
 
 import 'package:flutter/material.dart';
@@ -72,7 +74,7 @@ class _EditorScreenState extends State<EditorScreen> {
     setState(() => _isExporting = true);
     try {
       // Calculate exact dimensions for the final exported image
-      final fileBytes = await File(widget.imagePath).readAsBytes();
+      final fileBytes = await XFile(widget.imagePath).readAsBytes();
       final codec = await ui.instantiateImageCodec(fileBytes);
       final frameInfo = await codec.getNextFrame();
       final ui.Image img = frameInfo.image;
@@ -115,20 +117,22 @@ class _EditorScreenState extends State<EditorScreen> {
         delay: const Duration(milliseconds: 200),
       );
 
-      final directory = await getApplicationDocumentsDirectory();
       final fileName = "ExifRoom_${DateTime.now().millisecondsSinceEpoch}.jpg";
-      final filePath = p.join(directory.path, fileName);
-      final file = File(filePath);
+      String? filePath;
 
       // Convert PNG to JPG at 100% quality
       final decodedImage = image_pkg.decodeImage(imageBytes);
-      if (decodedImage != null) {
-        final jpgBytes = image_pkg.encodeJpg(decodedImage, quality: 100);
-        await file.writeAsBytes(jpgBytes);
-      } else {
-        await file.writeAsBytes(imageBytes); // fallback
-      }
+      final Uint8List jpgBytes = decodedImage != null ? image_pkg.encodeJpg(decodedImage, quality: 100) : imageBytes;
 
+      if (kIsWeb) {
+        // Trigger browser download directly
+        await FileManagerService.shareOrSaveImage(fileName, false, webBytes: jpgBytes);
+      } else {
+        final directory = await getApplicationDocumentsDirectory();
+        filePath = p.join(directory.path, fileName);
+        final file = File(filePath);
+        await file.writeAsBytes(jpgBytes);
+      }
 
       final project = PosterProject(
         originalImagePath: widget.imagePath,
@@ -141,7 +145,7 @@ class _EditorScreenState extends State<EditorScreen> {
       await DatabaseService().saveProject(project);
 
       if (mounted) {
-        _showSuccessSheet(filePath);
+        _showSuccessSheet(kIsWeb ? widget.imagePath : filePath!);
       }
     } catch (e) {
       if (mounted) {
@@ -180,16 +184,18 @@ class _EditorScreenState extends State<EditorScreen> {
               ),
               const Divider(height: 1, color: Colors.white12),
               _buildDialogButton(
-                icon: Icons.arrow_downward_rounded,
-                text: "기기에 저장",
+                icon: Icons.save_alt_rounded,
+                text: "저장하기",
                 onTap: () async {
                   Navigator.pop(dialogContext);
-                  await FileManagerService.shareOrSaveImage(path, Platform.isWindows, saveToDevice: true);
+                  if (!kIsWeb) {
+                    await FileManagerService.shareOrSaveImage(path, Platform.isWindows, saveToDevice: true);
+                  }
                   if (!mounted) return;
                   Navigator.pop(context, true);
                 },
               ),
-              if (!Platform.isWindows) ...[
+              if (!kIsWeb && !Platform.isWindows) ...[
                 const Divider(height: 1, color: Colors.white12),
                 _buildDialogButton(
                   icon: Icons.share_outlined,

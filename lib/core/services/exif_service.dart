@@ -1,5 +1,5 @@
-import 'dart:io';
 import 'dart:convert';
+import 'package:cross_file/cross_file.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:exif/exif.dart' as exif_lib;
@@ -9,7 +9,7 @@ import '../models/exif_data.dart';
 
 class ExifService {
   static Future<ExifData> extractExif(String imagePath) async {
-    final fileBytes = await File(imagePath).readAsBytes();
+    final fileBytes = await XFile(imagePath).readAsBytes();
     final tags = await exif_lib.readExifFromBytes(fileBytes);
 
     if (tags.isEmpty) {
