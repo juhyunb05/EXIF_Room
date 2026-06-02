@@ -8,6 +8,7 @@ import '../core/models/exif_data.dart';
 
 class PosterCanvas extends StatelessWidget {
   final String imagePath;
+  final Uint8List? webImageBytes;
   final ExifData exifData;
   final int imageRotation;
   final bool isPreview;
@@ -15,6 +16,7 @@ class PosterCanvas extends StatelessWidget {
   const PosterCanvas({
     super.key,
     required this.imagePath,
+    this.webImageBytes,
     required this.exifData,
     this.imageRotation = 0,
     this.isPreview = false,
@@ -32,22 +34,29 @@ class PosterCanvas extends StatelessWidget {
         children: [
           const SizedBox(height: 200),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 200),
+            padding: EdgeInsets.symmetric(horizontal: isPreview ? 20 : 200),
             child: RotatedBox(
               quarterTurns: imageRotation,
-              child: kIsWeb 
-                ? Image.network(
-                    imagePath,
-                    width: (imageRotation % 2 != 0) ? null : 2400,
-                    height: (imageRotation % 2 != 0) ? 2400 : null,
-                    fit: BoxFit.contain,
-                  )
-                : Image.file(
-                    File(imagePath),
-                    width: (imageRotation % 2 != 0) ? null : 2400,
-                    height: (imageRotation % 2 != 0) ? 2400 : null,
-                    fit: BoxFit.contain,
-                  ),
+              child: webImageBytes != null
+                  ? Image.memory(
+                      webImageBytes!,
+                      width: (imageRotation % 2 != 0) ? null : 2400,
+                      height: (imageRotation % 2 != 0) ? 2400 : null,
+                      fit: BoxFit.contain,
+                    )
+                  : kIsWeb 
+                      ? Image.network(
+                          imagePath,
+                          width: (imageRotation % 2 != 0) ? null : 2400,
+                          height: (imageRotation % 2 != 0) ? 2400 : null,
+                          fit: BoxFit.contain,
+                        )
+                      : Image.file(
+                          File(imagePath),
+                          width: (imageRotation % 2 != 0) ? null : 2400,
+                          height: (imageRotation % 2 != 0) ? 2400 : null,
+                          fit: BoxFit.contain,
+                        ),
             ),
           ),
           const SizedBox(height: 320),

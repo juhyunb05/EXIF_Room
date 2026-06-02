@@ -20,12 +20,14 @@ import '../../widgets/poster_canvas.dart';
 
 class EditorScreen extends StatefulWidget {
   final String imagePath;
-  final ExifData initialExif;
+  final ExifData? initialExif;
+  final Uint8List? webImageBytes;
 
   const EditorScreen({
     super.key,
     required this.imagePath,
-    required this.initialExif,
+    this.initialExif,
+    this.webImageBytes,
   });
 
   @override
@@ -49,7 +51,7 @@ class _EditorScreenState extends State<EditorScreen> {
   @override
   void initState() {
     super.initState();
-    _currentExif = widget.initialExif;
+    _currentExif = widget.initialExif ?? ExifData();
     _cameraMakeController = TextEditingController(text: _currentExif.cameraMake);
     _cameraNameController = TextEditingController(text: _currentExif.cameraName);
     _locationController = TextEditingController(text: _currentExif.location);
@@ -76,7 +78,9 @@ class _EditorScreenState extends State<EditorScreen> {
     try {
       // Calculate exact dimensions for the final exported image
       final Uint8List fileBytes;
-      if (kIsWeb) {
+      if (widget.webImageBytes != null) {
+        fileBytes = widget.webImageBytes!;
+      } else if (kIsWeb) {
         final response = await http.get(Uri.parse(widget.imagePath));
         fileBytes = response.bodyBytes;
       } else {
@@ -115,6 +119,7 @@ class _EditorScreenState extends State<EditorScreen> {
         Material(
           child: PosterCanvas(
             imagePath: widget.imagePath,
+            webImageBytes: widget.webImageBytes,
             exifData: _currentExif,
             imageRotation: _imageRotation,
             isPreview: false,
@@ -370,6 +375,7 @@ class _EditorScreenState extends State<EditorScreen> {
                 aspectRatio: 3 / 4,
                 child: PosterCanvas(
                   imagePath: widget.imagePath,
+                  webImageBytes: widget.webImageBytes,
                   exifData: _currentExif,
                   imageRotation: _imageRotation,
                   isPreview: true,

@@ -13,6 +13,7 @@ import '../../core/models/poster_project.dart';
 import '../../core/services/database_service.dart';
 import '../../core/services/exif_service.dart';
 import '../../core/services/file_manager_service.dart';
+import '../../core/utils/heic_converter_web.dart';
 import '../../theme/app_theme.dart';
 import '../editor/editor_screen.dart';
 
@@ -49,7 +50,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
       final picker = ImagePicker();
       final image = await picker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 100,
+        
       );
       selectedPath = image?.path;
       selectedName = image?.name;
@@ -65,7 +66,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
       final picker = ImagePicker();
       final image = await picker.pickImage(
         source: ImageSource.gallery,
-        imageQuality: 100,
+        
       );
       selectedPath = image?.path;
       selectedName = image?.name;
@@ -82,20 +83,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
               const SnackBar(content: Text('HEIC 파일을 JPG로 변환 중입니다. 잠시만 기다려주세요...')),
             );
           }
-          final response = await http.get(Uri.parse(currentPath));
-          final heicBytes = response.bodyBytes;
-          
-          final jpgBytes = await HeicConverter.convertToJPG(
-            heicData: heicBytes,
-            quality: 100,
-          );
-          
-          final jpgXFile = XFile.fromData(
-            jpgBytes,
-            mimeType: 'image/jpeg',
-            name: (selectedName ?? 'image.heic').replaceAll(RegExp(r'\.hei[cf]$', caseSensitive: false), '.jpg'),
-          );
-          currentPath = jpgXFile.path;
+          currentPath = await convertHeicWeb(currentPath);
         } catch (e) {
           debugPrint('Failed to convert HEIC on Web: $e');
           if (mounted) {
@@ -268,42 +256,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
   }
 
   Widget _buildEmptyState() {
-    return SliverFillRemaining(
-      child: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                color: AppTheme.canvasColor,
-                shape: BoxShape.circle,
-                boxShadow: [
-                  BoxShadow(color: Colors.black.withAlpha(50), blurRadius: 40),
-                ],
-              ),
-              child: const Icon(
-                Icons.camera_rounded,
-                size: 48,
-                color: Colors.white,
-              ),
-            ),
-            const SizedBox(height: 24),
-            Text(
-              "No posters yet",
-              style: TextStyle(fontFamily: 'Pretendard', 
-                fontSize: 18,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              "Transform your photos into art",
-              style: TextStyle(color: AppTheme.subtitleColor),
-            ),
-          ],
-        ),
-      ),
+    return const SliverFillRemaining(
+      child: SizedBox.shrink(),
     );
   }
 
