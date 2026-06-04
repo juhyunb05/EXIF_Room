@@ -17,4 +17,4 @@ For help getting started with Flutter development, view the
 samples, guidance on mobile development, and a full API reference.
 
 ## 웹 호스팅
-juhyunb05.github.io/EXIF_Room
+https://juhyunb05.github.io/EXIF_Room
