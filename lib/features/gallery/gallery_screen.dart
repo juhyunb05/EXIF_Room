@@ -249,14 +249,16 @@ class _GalleryScreenState extends State<GalleryScreen> {
         ),
       ),
   floatingActionButtonLocation: FloatingActionButtonLocation.centerFloat,
-      floatingActionButton: FloatingActionButton(
-        onPressed: _pickImage,
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        highlightElevation: 0,
-        focusElevation: 0,
-        hoverElevation: 0,
-        child: const Icon(Icons.add, color: Colors.white, size: 36),
+      floatingActionButton: GestureDetector(
+        onTap: _pickImage,
+        behavior: HitTestBehavior.opaque,
+        child: const SizedBox(
+          width: 56,
+          height: 56,
+          child: Center(
+            child: Icon(Icons.add, color: Colors.white, size: 36),
+          ),
+        ),
       ),
     );
   }
