@@ -123,9 +123,14 @@ class ExifService {
     try {
       final url = Uri.parse(
           'https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=$lat&lon=$lon&accept-language=ko');
-      final response = await http.get(url, headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-      });
+      final response = await http.get(
+        url,
+        headers: kIsWeb
+            ? {}
+            : {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+              },
+      );
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         final address = data['address'];

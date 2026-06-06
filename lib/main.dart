@@ -5,6 +5,7 @@ import 'features/gallery/gallery_screen.dart';
 import 'theme/app_theme.dart';
 
 import 'dart:io';
+import 'package:flutter/foundation.dart';
 
 void main() async {
   try {
@@ -16,7 +17,11 @@ void main() async {
     runApp(const MyApp());
   } catch (e, stackTrace) {
     try {
-      File('error_log.txt').writeAsStringSync('Startup Error: $e\n$stackTrace');
+      if (!kIsWeb) {
+        File('error_log.txt').writeAsStringSync('Startup Error: $e\n$stackTrace');
+      } else {
+        debugPrint('Startup Error: $e\n$stackTrace');
+      }
     } catch (_) {}
     runApp(MaterialApp(
       home: Scaffold(
