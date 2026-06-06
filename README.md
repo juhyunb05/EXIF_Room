@@ -1,6 +1,6 @@
-# room
+# EXIF Room
 
-A Photo Room
+사진의 메타데이터를 표시해주는 EXIF 프레임 앱
 
 ## Getting Started
 
@@ -15,3 +15,6 @@ A few resources to get you started if this is your first Flutter project:
 For help getting started with Flutter development, view the
 [online documentation](https://docs.flutter.dev/), which offers tutorials,
 samples, guidance on mobile development, and a full API reference.
+
+## 웹 호스팅
+https://juhyunb05.github.io/EXIF_Room
