@@ -31,6 +31,41 @@
 
   <title>room</title>
   <link rel="manifest" href="manifest.json">
+  <style>
+    /* Remove default tap highlights and outlines on iOS Safari */
+    * {
+      -webkit-tap-highlight-color: transparent !important;
+      -webkit-touch-callout: none !important;
+      outline: none !important;
+    }
+
+    /* Off-screen and hide the image picker input container and elements */
+    #__image_picker_web-file-input,
+    flt-image-picker-inputs {
+      position: fixed !important;
+      top: -100px !important;
+      left: -100px !important;
+      width: 1px !important;
+      height: 1px !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+      visibility: hidden !important;
+    }
+
+    #__image_picker_web-file-input input,
+    flt-image-picker-inputs input {
+      position: fixed !important;
+      top: -100px !important;
+      left: -100px !important;
+      width: 1px !important;
+      height: 1px !important;
+      opacity: 0 !important;
+      pointer-events: none !important;
+      visibility: hidden !important;
+      -webkit-tap-highlight-color: transparent !important;
+      outline: none !important;
+    }
+  </style>
 </head>
 <body>
   <!--
