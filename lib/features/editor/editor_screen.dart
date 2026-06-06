@@ -9,7 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:screenshot/screenshot.dart';
-import 'package:image/image.dart' as image_pkg;
+
 
 import '../../core/models/exif_data.dart';
 import '../../core/models/poster_project.dart';
@@ -129,21 +129,14 @@ class _EditorScreenState extends State<EditorScreen> {
         delay: const Duration(milliseconds: 200),
       );
 
-      final fileName = "ExifRoom_${DateTime.now().millisecondsSinceEpoch}.jpg";
+      final fileName = FileManagerService.generateFileName(_currentExif, 'png');
       String? filePath;
 
-      // Convert PNG to JPG at 100% quality
-      final decodedImage = image_pkg.decodeImage(imageBytes);
-      final Uint8List jpgBytes = decodedImage != null ? image_pkg.encodeJpg(decodedImage, quality: 100) : imageBytes;
-
-      if (kIsWeb) {
-        // Trigger browser download directly
-        await FileManagerService.shareOrSaveImage(fileName, false, webBytes: jpgBytes);
-      } else {
+      if (!kIsWeb) {
         final directory = await getApplicationDocumentsDirectory();
         filePath = p.join(directory.path, fileName);
         final file = File(filePath);
-        await file.writeAsBytes(jpgBytes);
+        await file.writeAsBytes(imageBytes);
       }
 
       final project = PosterProject(
@@ -152,12 +145,13 @@ class _EditorScreenState extends State<EditorScreen> {
         exif: _currentExif,
         createdAt: DateTime.now(),
         exported: true,
+        webExportedImageBytes: kIsWeb ? imageBytes : null,
       );
 
       await DatabaseService().saveProject(project);
 
       if (mounted) {
-        _showSuccessSheet(kIsWeb ? widget.imagePath : filePath!);
+        _showSuccessSheet(kIsWeb ? fileName : filePath!, webBytes: kIsWeb ? imageBytes : null);
       }
     } catch (e) {
       if (mounted) {
@@ -170,7 +164,7 @@ class _EditorScreenState extends State<EditorScreen> {
     }
   }
 
-  void _showSuccessSheet(String path) {
+  void _showSuccessSheet(String path, {Uint8List? webBytes}) {
     showDialog(
       context: context,
       barrierColor: Colors.black.withOpacity(0.6),
@@ -200,7 +194,11 @@ class _EditorScreenState extends State<EditorScreen> {
                 text: "저장하기",
                 onTap: () async {
                   Navigator.pop(dialogContext);
-                  if (!kIsWeb) {
+                  if (kIsWeb) {
+                    if (webBytes != null) {
+                      await FileManagerService.shareOrSaveImage(path, false, webBytes: webBytes);
+                    }
+                  } else {
                     await FileManagerService.shareOrSaveImage(path, Platform.isWindows, saveToDevice: true);
                   }
                   if (!mounted) return;

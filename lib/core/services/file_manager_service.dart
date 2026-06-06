@@ -6,6 +6,8 @@ import 'package:share_plus/share_plus.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_file_dialog/flutter_file_dialog.dart';
 import 'package:cross_file/cross_file.dart' as cross;
+import 'package:intl/intl.dart';
+import '../models/exif_data.dart';
 
 class FileManagerService {
   static Future<String> copyToInternalStorage(String sourcePath) async {
@@ -26,23 +28,78 @@ class FileManagerService {
     return destinationPath;
   }
 
-  static Future<void> shareOrSaveImage(String imagePath, bool isWindows, {bool saveToDevice = false, Uint8List? webBytes}) async {
-    if (kIsWeb && webBytes != null) {
-      // Trigger browser download
-      final xfile = cross.XFile.fromData(webBytes, name: imagePath, mimeType: 'image/jpeg');
-      await xfile.saveTo(imagePath);
-      return;
+  static String generateFileName(ExifData exif, String extension) {
+    final now = DateTime.now();
+    
+    // 1. Camera Name processing
+    String cameraPart = 'UNKNOWN';
+    if (exif.cameraName != null && exif.cameraName!.trim().isNotEmpty) {
+      cameraPart = exif.cameraName!
+          .trim()
+          .replaceAll(RegExp(r'\s+'), '')
+          .replaceAll(RegExp(r'[^a-zA-Z0-9가-힣ㄱ-ㅎㅏ-ㅣ_]'), '')
+          .toUpperCase();
+    } else if (exif.cameraMake != null && exif.cameraMake!.trim().isNotEmpty) {
+      cameraPart = exif.cameraMake!
+          .trim()
+          .replaceAll(RegExp(r'\s+'), '')
+          .replaceAll(RegExp(r'[^a-zA-Z0-9가-힣ㄱ-ㅎㅏ-ㅣ_]'), '')
+          .toUpperCase();
+    }
+    
+    // 2. Date/Time processing
+    String datePart;
+    if (exif.shotDate != null) {
+      datePart = DateFormat("yyyyMMdd_HHmmss").format(exif.shotDate!);
+    } else {
+      final dateStr = DateFormat("yyyyMMdd_HHmmss").format(now);
+      datePart = "D_$dateStr";
+    }
+    
+    final ext = extension.startsWith('.') ? extension : '.$extension';
+    return "Room_${cameraPart}_$datePart$ext";
+  }
+
+  static Future<void> shareOrSaveImage(
+    String imagePath, 
+    bool isWindows, {
+    bool saveToDevice = false, 
+    Uint8List? webBytes,
+    String? customFileName,
+  }) async {
+    if (kIsWeb) {
+      Uint8List? bytes = webBytes;
+      if (bytes == null) {
+        try {
+          final xfile = cross.XFile(imagePath);
+          bytes = await xfile.readAsBytes();
+        } catch (e) {
+          debugPrint('Failed to read image bytes on Web: $e');
+        }
+      }
+      if (bytes != null) {
+        final ext = p.extension(imagePath).toLowerCase().replaceAll('.', '');
+        final finalExt = ext.isEmpty ? 'png' : ext;
+        final name = customFileName ?? p.basename(imagePath);
+        final fileName = name.endsWith('.$finalExt') ? name : '$name.$finalExt';
+        
+        final xfile = cross.XFile.fromData(bytes, name: fileName, mimeType: finalExt == 'png' ? 'image/png' : 'image/jpeg');
+        await xfile.saveTo(fileName);
+      }
+      return; // Always return early on Web to prevent native platform channel calls
     }
 
     if (isWindows) {
-      final name = p.basename(imagePath);
       final ext = p.extension(imagePath).toLowerCase().replaceAll('.', '');
+      final finalExt = ext.isEmpty ? 'png' : ext;
+      final name = customFileName ?? p.basename(imagePath);
+      final fileName = name.endsWith('.$finalExt') ? name : '$name.$finalExt';
       final typeGroup = XTypeGroup(
         label: 'Images',
-        extensions: <String>[ext.isEmpty ? 'png' : ext],
+        extensions: <String>[finalExt],
       );
       final saveLocation = await getSaveLocation(
-        suggestedName: name,
+        suggestedName: fileName,
         acceptedTypeGroups: [typeGroup],
       );
       if (saveLocation != null) {
@@ -50,9 +107,13 @@ class FileManagerService {
         await file.copy(saveLocation.path);
       }
     } else if (saveToDevice) {
+      final ext = p.extension(imagePath).toLowerCase().replaceAll('.', '');
+      final finalExt = ext.isEmpty ? 'png' : ext;
+      final name = customFileName ?? p.basename(imagePath);
+      final fileName = name.endsWith('.$finalExt') ? name : '$name.$finalExt';
       final params = SaveFileDialogParams(
         sourceFilePath: imagePath,
-        fileName: p.basename(imagePath),
+        fileName: fileName,
       );
       await FlutterFileDialog.saveFile(params: params);
     } else {

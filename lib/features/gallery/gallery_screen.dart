@@ -4,8 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:heic_to_png_jpg/heic_to_png_jpg.dart';
-import 'package:cross_file/cross_file.dart';
-import 'package:http/http.dart' as http;
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
 
@@ -102,9 +100,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
             format: ImageFormat.jpg,
             quality: 100,
           );
-          if (outputPath != null) {
-            currentPath = outputPath;
-          }
+          currentPath = outputPath;
         } catch (e) {
           debugPrint('Failed to convert HEIC: $e');
         }
@@ -129,7 +125,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     }
   }
 
-  void _viewImage(String path) {
+  void _viewImage(PosterProject project) {
     showDialog(
       context: context,
       builder: (context) => Dialog(
@@ -138,10 +134,20 @@ class _GalleryScreenState extends State<GalleryScreen> {
         child: GestureDetector(
           onTap: () => Navigator.pop(context),
           child: InteractiveViewer(
-            child: Image.file(
-              File(path),
-              fit: BoxFit.contain,
-            ),
+            child: kIsWeb
+                ? (project.webExportedImageBytes != null
+                    ? Image.memory(
+                        project.webExportedImageBytes!,
+                        fit: BoxFit.contain,
+                      )
+                    : Image.network(
+                        project.originalImagePath,
+                        fit: BoxFit.contain,
+                      ))
+                : Image.file(
+                    File(project.exportedImagePath ?? project.originalImagePath),
+                    fit: BoxFit.contain,
+                  ),
           ),
         ),
       ),
@@ -276,7 +282,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
               return Hero(
                 tag: project.id ?? project.hashCode,
                 child: GestureDetector(
-                  onTap: () => _viewImage(project.exportedImagePath ?? project.originalImagePath),
+                  onTap: () => _viewImage(project),
                   onLongPress: () {
                     final box = itemContext.findRenderObject() as RenderBox;
                     final rect = box.localToGlobal(Offset.zero) & box.size;
@@ -297,12 +303,16 @@ class _GalleryScreenState extends State<GalleryScreen> {
                         ),
                       ],
                     ),
-                    child: Image.file(
-                      File(
-                        project.exportedImagePath ??
-                            project.originalImagePath,
-                      ),
-                    ),
+                    child: kIsWeb
+                        ? (project.webExportedImageBytes != null
+                            ? Image.memory(project.webExportedImageBytes!)
+                            : Image.network(project.originalImagePath))
+                        : Image.file(
+                            File(
+                              project.exportedImagePath ??
+                                  project.originalImagePath,
+                            ),
+                          ),
                   ),
                 ),
               );
@@ -406,10 +416,15 @@ class _ProjectContextMenuState extends State<_ProjectContextMenu> with SingleTic
                       ],
                     ),
                     child: kIsWeb 
-                      ? Image.network(
-                          widget.project.exportedImagePath ?? widget.project.originalImagePath,
-                          fit: BoxFit.contain,
-                        )
+                      ? (widget.project.webExportedImageBytes != null
+                          ? Image.memory(
+                              widget.project.webExportedImageBytes!,
+                              fit: BoxFit.contain,
+                            )
+                          : Image.network(
+                              widget.project.exportedImagePath ?? widget.project.originalImagePath,
+                              fit: BoxFit.contain,
+                            ))
                       : Image.file(
                           File(widget.project.exportedImagePath ?? widget.project.originalImagePath),
                           fit: BoxFit.contain, // Maintain aspect ratio when scaled
@@ -444,7 +459,15 @@ class _ProjectContextMenuState extends State<_ProjectContextMenu> with SingleTic
                           onPressed: () {
                             Navigator.pop(context);
                             final path = widget.project.exportedImagePath ?? widget.project.originalImagePath;
-                            FileManagerService.shareOrSaveImage(path, !kIsWeb && Platform.isWindows, saveToDevice: true);
+                            final ext = p.extension(path).isEmpty ? 'png' : p.extension(path).replaceAll('.', '');
+                            final customName = FileManagerService.generateFileName(widget.project.exif, ext);
+                            FileManagerService.shareOrSaveImage(
+                              path,
+                              !kIsWeb && Platform.isWindows,
+                              saveToDevice: true,
+                              webBytes: widget.project.webExportedImageBytes,
+                              customFileName: customName,
+                            );
                           },
                         ),
                         if (!kIsWeb && !Platform.isWindows)

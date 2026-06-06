@@ -23,13 +23,14 @@ class PosterProjectAdapter extends TypeAdapter<PosterProject> {
       exif: fields[3] as ExifData,
       createdAt: fields[4] as DateTime,
       exported: fields[5] as bool,
+      webExportedImageBytes: fields[6] as Uint8List?,
     );
   }
 
   @override
   void write(BinaryWriter writer, PosterProject obj) {
     writer
-      ..writeByte(6)
+      ..writeByte(7)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -41,7 +42,9 @@ class PosterProjectAdapter extends TypeAdapter<PosterProject> {
       ..writeByte(4)
       ..write(obj.createdAt)
       ..writeByte(5)
-      ..write(obj.exported);
+      ..write(obj.exported)
+      ..writeByte(6)
+      ..write(obj.webExportedImageBytes);
   }
 
   @override

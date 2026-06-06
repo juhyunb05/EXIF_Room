@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:hive/hive.dart';
 
 import 'exif_data.dart';
@@ -22,6 +23,9 @@ class PosterProject extends HiveObject {
   @HiveField(5)
   bool exported = false;
 
+  @HiveField(6)
+  Uint8List? webExportedImageBytes;
+
   PosterProject({
     this.id,
     required this.originalImagePath,
@@ -29,5 +33,6 @@ class PosterProject extends HiveObject {
     required this.exif,
     required this.createdAt,
     this.exported = false,
+    this.webExportedImageBytes,
   });
 }
