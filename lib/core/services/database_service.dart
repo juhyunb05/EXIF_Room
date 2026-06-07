@@ -5,6 +5,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../models/exif_data.dart';
 import '../models/poster_project.dart';
+import '../models/poster_project_image.dart';
 
 class DatabaseService {
   static const String _boxName = 'posterProjectsBox_v2';
@@ -30,6 +31,10 @@ class DatabaseService {
       Hive.registerAdapter(ExifDataAdapter());
     }
 
+    if (!Hive.isAdapterRegistered(2)) {
+      Hive.registerAdapter(PosterProjectImageAdapter());
+    }
+
     box = await Hive.openBox<PosterProject>(_boxName);
   }
 
@@ -37,13 +42,25 @@ class DatabaseService {
     return box.values.toList();
   }
 
-  Future<void> saveProject(PosterProject project) async {
+  Future<void> saveProject(PosterProject project, {Uint8List? originalImageBytes}) async {
     if (project.isInBox) {
       await project.save();
     } else {
       final id = await box.add(project);
       project.id = id;
       await project.save();
+    }
+
+    // 원본 고화질 이미지를 전용 이미지 격리 박스에 분리 저장
+    if (originalImageBytes != null && project.id != null) {
+      try {
+        final imageBox = await Hive.openBox<PosterProjectImage>('posterProjectImagesBox');
+        final imageObj = PosterProjectImage(id: project.id, imageBytes: originalImageBytes);
+        await imageBox.put(project.id, imageObj);
+        await imageBox.close(); // 즉시 닫아 램 메모리를 회수
+      } catch (e) {
+        debugPrint('Failed to save original image bytes: $e');
+      }
     }
   }
 
@@ -73,6 +90,39 @@ class DatabaseService {
       }
     }
 
+    // 이미지 전용 격리 박스에서도 원본 고화질 이미지 데이터 삭제
+    try {
+      final imageBox = await Hive.openBox<PosterProjectImage>('posterProjectImagesBox');
+      await imageBox.delete(id);
+      await imageBox.close();
+    } catch (e) {
+      debugPrint('Failed to delete isolated original image: $e');
+    }
+
     await project.delete();
+  }
+
+  Future<void> clearAllData() async {
+    await box.clear();
+    try {
+      final imageBox = await Hive.openBox<PosterProjectImage>('posterProjectImagesBox');
+      await imageBox.clear();
+      await imageBox.close();
+    } catch (e) {
+      debugPrint('Failed to clear isolated images: $e');
+    }
+  }
+
+  Future<Uint8List?> getOriginalImageBytes(int id) async {
+    try {
+      final imageBox = await Hive.openBox<PosterProjectImage>('posterProjectImagesBox');
+      final imageObj = imageBox.get(id);
+      final bytes = imageObj?.imageBytes;
+      await imageBox.close(); // 로드가 끝나면 즉시 닫아 램 메모리를 반환
+      return bytes;
+    } catch (e) {
+      debugPrint('Failed to load isolated original image: $e');
+      return null;
+    }
   }
 }

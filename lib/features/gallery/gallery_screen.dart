@@ -139,15 +139,31 @@ class _GalleryScreenState extends State<GalleryScreen> {
           onTap: () => Navigator.pop(context),
           child: InteractiveViewer(
             child: kIsWeb
-                ? (project.webExportedImageBytes != null
-                    ? Image.memory(
-                        project.webExportedImageBytes!,
-                        fit: BoxFit.contain,
-                      )
-                    : Image.network(
+                ? FutureBuilder<Uint8List?>(
+                    future: project.id != null
+                        ? DatabaseService().getOriginalImageBytes(project.id!)
+                        : Future.value(null),
+                    builder: (context, snapshot) {
+                      if (snapshot.connectionState == ConnectionState.waiting) {
+                        return const Center(
+                          child: CircularProgressIndicator(
+                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          ),
+                        );
+                      }
+                      final bytes = snapshot.data ?? project.webExportedImageBytes;
+                      if (bytes != null) {
+                        return Image.memory(
+                          bytes,
+                          fit: BoxFit.contain,
+                        );
+                      }
+                      return Image.network(
                         project.originalImagePath,
                         fit: BoxFit.contain,
-                      ))
+                      );
+                    },
+                  )
                 : Image.file(
                     File(project.exportedImagePath ?? project.originalImagePath),
                     fit: BoxFit.contain,
@@ -458,7 +474,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                           Navigator.pop(context);
                           
                           // Perform clear
-                          await DatabaseService().box.clear();
+                          await DatabaseService().clearAllData();
                           
                           if (!kIsWeb) {
                             try {
@@ -711,16 +727,28 @@ class _GalleryScreenState extends State<GalleryScreen> {
                         ),
                       ],
                     ),
-                    child: kIsWeb
-                        ? (project.webExportedImageBytes != null
-                            ? Image.memory(project.webExportedImageBytes!)
-                            : Image.network(project.originalImagePath))
-                        : Image.file(
-                            File(
-                              project.exportedImagePath ??
-                                  project.originalImagePath,
-                            ),
-                          ),
+                    child: project.thumbnailBytes != null
+                        ? Image.memory(
+                            project.thumbnailBytes!,
+                            fit: BoxFit.cover,
+                          )
+                        : (kIsWeb
+                            ? (project.webExportedImageBytes != null
+                                ? Image.memory(
+                                    project.webExportedImageBytes!,
+                                    cacheWidth: 300,
+                                  )
+                                : Image.network(
+                                    project.originalImagePath,
+                                    cacheWidth: 300,
+                                  ))
+                            : Image.file(
+                                File(
+                                  project.exportedImagePath ??
+                                      project.originalImagePath,
+                                ),
+                                cacheWidth: 300,
+                              )),
                   ),
                 ),
               );

@@ -9,6 +9,7 @@ import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:screenshot/screenshot.dart';
+import 'package:image/image.dart' as img_lib;
 
 
 import '../../core/models/exif_data.dart';
@@ -70,14 +71,24 @@ class _EditorScreenState extends State<EditorScreen> {
     _apertureController.dispose();
     _shutterSpeedController.dispose();
     _isoController.dispose();
+    
+    // 화면 이탈 시 남아있을 수 있는 모든 이미지 텍스처 리소스 강제 반환
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
     super.dispose();
   }
 
   Future<void> _exportPoster() async {
     setState(() => _isExporting = true);
+    
+    // 메모리 즉시 해제를 위해 대형 로컬 그래픽 버퍼들을 미리 선언
+    Uint8List? fileBytes;
+    Uint8List? imageBytes;
+    img_lib.Image? decodedImage;
+    img_lib.Image? resized;
+    Uint8List? thumbnailBytes;
+
     try {
-      // Calculate exact dimensions for the final exported image
-      final Uint8List fileBytes;
       if (widget.webImageBytes != null) {
         fileBytes = widget.webImageBytes!;
       } else if (kIsWeb) {
@@ -94,6 +105,9 @@ class _EditorScreenState extends State<EditorScreen> {
         ratio = img.height / img.width;
       }
       final double imageHeight = 2400 / ratio;
+      
+      // 즉시 이미지 객체를 해제하여 힙 메모리 누수 방지
+      img.dispose();
       
       // Accurately calculate the height of the info section
       int nameLength = (_currentExif.cameraName ?? "UNKNOWN CAMERA").length;
@@ -115,7 +129,7 @@ class _EditorScreenState extends State<EditorScreen> {
       // 200 (top) + image + 320 (middle) + dynamic text height + 320 (bottom)
       final double totalHeight = 200 + imageHeight + 320 + textHeight + 320;
 
-      final imageBytes = await _screenshotController.captureFromWidget(
+      imageBytes = await _screenshotController.captureFromWidget(
         Material(
           child: PosterCanvas(
             imagePath: widget.imagePath,
@@ -126,8 +140,23 @@ class _EditorScreenState extends State<EditorScreen> {
           ),
         ),
         targetSize: Size(2800, totalHeight),
-        delay: const Duration(milliseconds: 200),
+        delay: const Duration(milliseconds: 500),
       );
+
+      // 썸네일 생성 로직 (JPEG 40% 압축 및 1/4 사이즈 다운샘플링)
+      try {
+        decodedImage = img_lib.decodeImage(imageBytes);
+        if (decodedImage != null) {
+          resized = img_lib.copyResize(
+            decodedImage,
+            width: 700,
+            interpolation: img_lib.Interpolation.linear,
+          );
+          thumbnailBytes = Uint8List.fromList(img_lib.encodeJpg(resized, quality: 40));
+        }
+      } catch (e) {
+        debugPrint('Failed to generate thumbnail: $e');
+      }
 
       final fileName = FileManagerService.generateFileName(_currentExif, 'png');
       String? filePath;
@@ -145,10 +174,11 @@ class _EditorScreenState extends State<EditorScreen> {
         exif: _currentExif,
         createdAt: DateTime.now(),
         exported: true,
-        webExportedImageBytes: kIsWeb ? imageBytes : null,
+        webExportedImageBytes: null,
+        thumbnailBytes: thumbnailBytes,
       );
 
-      await DatabaseService().saveProject(project);
+      await DatabaseService().saveProject(project, originalImageBytes: kIsWeb ? imageBytes : null);
 
       if (mounted) {
         _showSuccessSheet(kIsWeb ? fileName : filePath!, webBytes: kIsWeb ? imageBytes : null);
@@ -160,6 +190,17 @@ class _EditorScreenState extends State<EditorScreen> {
         ).showSnackBar(SnackBar(content: Text("Export failed: $e")));
       }
     } finally {
+      // 대형 그래픽 메모리 객체들의 레퍼런스를 null 처리하여 가비지 수집 즉시 유도
+      fileBytes = null;
+      imageBytes = null;
+      decodedImage = null;
+      resized = null;
+      thumbnailBytes = null;
+
+      // 이미지 캐시를 강제 정화하여 렌더링 텍스처 즉시 반환
+      PaintingBinding.instance.imageCache.clear();
+      PaintingBinding.instance.imageCache.clearLiveImages();
+
       if (mounted) setState(() => _isExporting = false);
     }
   }
@@ -167,7 +208,7 @@ class _EditorScreenState extends State<EditorScreen> {
   void _showSuccessSheet(String path, {Uint8List? webBytes}) {
     showDialog(
       context: context,
-      barrierColor: Colors.black.withOpacity(0.6),
+      barrierColor: Colors.black.withAlpha(153),
       builder: (dialogContext) => Dialog(
         backgroundColor: const Color(0xFF262626), // Dark iOS-like gray
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
@@ -386,7 +427,7 @@ class _EditorScreenState extends State<EditorScreen> {
             bottom: 16,
             child: Container(
               decoration: BoxDecoration(
-                color: Colors.black.withOpacity(0.5),
+                color: Colors.black.withAlpha(128),
                 shape: BoxShape.circle,
               ),
               child: IconButton(

@@ -1,12 +1,10 @@
 import 'dart:io';
 import 'dart:convert';
-import 'package:cross_file/cross_file.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:exif/exif.dart' as exif_lib;
 import 'package:intl/intl.dart';
 
-import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 
 import '../models/exif_data.dart';
