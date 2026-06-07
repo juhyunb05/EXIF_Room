@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:hive_flutter/hive_flutter.dart';
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
@@ -47,8 +48,31 @@ class DatabaseService {
   }
 
   Future<void> deleteProject(int id) async {
-    // We can delete by key
     final project = box.values.firstWhere((p) => p.id == id);
+
+    // 네이티브 플랫폼인 경우 파일 시스템에서 실제 이미지 파일도 함께 삭제하여 용량 낭비를 막음
+    if (!kIsWeb) {
+      try {
+        final originalFile = File(project.originalImagePath);
+        if (await originalFile.exists()) {
+          await originalFile.delete();
+        }
+      } catch (e) {
+        debugPrint('Failed to delete original image file: $e');
+      }
+
+      if (project.exportedImagePath != null) {
+        try {
+          final exportedFile = File(project.exportedImagePath!);
+          if (await exportedFile.exists()) {
+            await exportedFile.delete();
+          }
+        } catch (e) {
+          debugPrint('Failed to delete exported image file: $e');
+        }
+      }
+    }
+
     await project.delete();
   }
 }

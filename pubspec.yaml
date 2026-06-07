@@ -51,6 +51,7 @@ dependencies:
   hive: ^2.2.3
   hive_flutter: ^1.1.0
   cross_file: ^0.3.5+2
+  url_launcher: ^6.3.2
 
 dev_dependencies:
   flutter_test:
@@ -71,11 +72,11 @@ dev_dependencies:
 
 # The following section is specific to Flutter packages.
 flutter:
-
-  # The following line ensures that the Material Icons font is
-  # included with your application, so that you can use the icons in
-  # the material Icons class.
   uses-material-design: true
+
+  assets:
+    - assets/images/
+    - assets/privacy/
 
   # To add assets to your application, add an assets section, like this:
   # assets:
