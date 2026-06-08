@@ -46,6 +46,7 @@ flutter:
     - assets/images/
     - assets/images/BrandLogos/
     - assets/privacy/
+    - versionInfo.md
 
   fonts:
     - family: Pretendard

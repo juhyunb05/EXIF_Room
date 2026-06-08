@@ -20,6 +20,7 @@ import '../../theme/app_theme.dart';
 import '../editor/editor_screen.dart';
 import 'custom_license_screen.dart';
 import 'privacy_policy_screen.dart';
+import 'version_info_screen.dart';
 import '../../widgets/hover_interaction.dart';
 
 class GalleryScreen extends StatefulWidget {
@@ -32,11 +33,34 @@ class GalleryScreen extends StatefulWidget {
 class _GalleryScreenState extends State<GalleryScreen> {
   List<PosterProject> _projects = [];
   bool _isLoading = true;
+  String _currentVersion = 'v0.0.0';
 
   @override
   void initState() {
     super.initState();
     _loadProjects();
+    _loadVersion();
+  }
+
+  Future<void> _loadVersion() async {
+    try {
+      final rawText = await DefaultAssetBundle.of(context).loadString('versionInfo.md');
+      final lines = rawText.split('\n');
+      for (final rawLine in lines) {
+        final line = rawLine.trim();
+        if (line.startsWith('# ')) {
+          final parts = line.substring(2).split(' ');
+          if (parts.isNotEmpty) {
+            setState(() {
+              _currentVersion = parts[0];
+            });
+            break;
+          }
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to load version: $e');
+    }
   }
 
   Future<void> _loadProjects() async {
@@ -197,7 +221,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
           ),
           child: Container(
             width: 300, // Fixed width 300
-            height: 400, // Fixed height 400
+            height: 450, // Fixed height 450
             padding: const EdgeInsets.only(
               left: 24,
               right: 24,
@@ -225,9 +249,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
                         ),
                         const SizedBox(height: 6),
                         // Version
-                        const Text(
-                          'v0.1.1',
-                          style: TextStyle(
+                        Text(
+                          _currentVersion,
+                          style: const TextStyle(
                             fontFamily: 'Pretendard',
                             fontSize: 12,
                             fontWeight: FontWeight.w400,
@@ -237,6 +261,23 @@ class _GalleryScreenState extends State<GalleryScreen> {
                         const SizedBox(height: 24),
                         
                         // Info buttons
+                        _buildInfoMenuButton(
+                          text: '공지 및 변경사항',
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              PageRouteBuilder(
+                                pageBuilder: (context, animation, secondaryAnimation) =>
+                                    const VersionInfoScreen(),
+                                transitionsBuilder:
+                                    (context, animation, secondaryAnimation, child) {
+                                  return FadeTransition(opacity: animation, child: child);
+                                },
+                              ),
+                            );
+                          },
+                        ),
+                        const SizedBox(height: 10),
                         _buildInfoMenuButton(
                           text: '오픈소스 라이선스',
                           onTap: () {
