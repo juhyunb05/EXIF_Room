@@ -1,23 +1,22 @@
 import 'dart:io';
 import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
-import 'package:cross_file/cross_file.dart';
+import 'package:flutter/rendering.dart';
 import 'package:http/http.dart' as http;
 import 'package:intl/intl.dart';
 
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
-import 'package:screenshot/screenshot.dart';
-import 'package:image/image.dart' as img_lib;
-
-
+import 'image_processor.dart';
 import '../../core/models/exif_data.dart';
 import '../../core/models/poster_project.dart';
 import '../../core/services/database_service.dart';
 import '../../core/services/file_manager_service.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/poster_canvas.dart';
+import '../../widgets/loading_overlay.dart';
+import '../../widgets/hover_interaction.dart';
 
 class EditorScreen extends StatefulWidget {
   final String imagePath;
@@ -37,7 +36,6 @@ class EditorScreen extends StatefulWidget {
 
 class _EditorScreenState extends State<EditorScreen> {
   late ExifData _currentExif;
-  final ScreenshotController _screenshotController = ScreenshotController();
   bool _isExporting = false;
   int _imageRotation = 0;
 
@@ -84,8 +82,6 @@ class _EditorScreenState extends State<EditorScreen> {
     // 메모리 즉시 해제를 위해 대형 로컬 그래픽 버퍼들을 미리 선언
     Uint8List? fileBytes;
     Uint8List? imageBytes;
-    img_lib.Image? decodedImage;
-    img_lib.Image? resized;
     Uint8List? thumbnailBytes;
 
     try {
@@ -95,7 +91,7 @@ class _EditorScreenState extends State<EditorScreen> {
         final response = await http.get(Uri.parse(widget.imagePath));
         fileBytes = response.bodyBytes;
       } else {
-        fileBytes = await XFile(widget.imagePath).readAsBytes();
+        fileBytes = await File(widget.imagePath).readAsBytes();
       }
       final codec = await ui.instantiateImageCodec(fileBytes);
       final frameInfo = await codec.getNextFrame();
@@ -129,7 +125,7 @@ class _EditorScreenState extends State<EditorScreen> {
       // 200 (top) + image + 320 (middle) + dynamic text height + 320 (bottom)
       final double totalHeight = 200 + imageHeight + 320 + textHeight + 320;
 
-      imageBytes = await _screenshotController.captureFromWidget(
+      final captureResult = await _captureOffscreenWidget(
         Material(
           child: PosterCanvas(
             imagePath: widget.imagePath,
@@ -139,33 +135,30 @@ class _EditorScreenState extends State<EditorScreen> {
             isPreview: false,
           ),
         ),
-        targetSize: Size(2800, totalHeight),
-        delay: const Duration(milliseconds: 500),
+        Size(2800, totalHeight),
+        pixelRatio: 1.0, // Export width: 2800px (high quality)
       );
 
-      // 썸네일 생성 로직 (JPEG 40% 압축 및 1/4 사이즈 다운샘플링)
-      try {
-        decodedImage = img_lib.decodeImage(imageBytes);
-        if (decodedImage != null) {
-          resized = img_lib.copyResize(
-            decodedImage,
-            width: 700,
-            interpolation: img_lib.Interpolation.linear,
-          );
-          thumbnailBytes = Uint8List.fromList(img_lib.encodeJpg(resized, quality: 40));
-        }
-      } catch (e) {
-        debugPrint('Failed to generate thumbnail: $e');
-      }
+      // 백그라운드 스레드(Native) 또는 브라우저 네이티브 Canvas(Web)에서 JPEG 인코딩 및 썸네일 생성 실행
+      final processedData = await processExportedImageHelper(
+        rawRgba: captureResult['rawRgba'],
+        width: captureResult['width'],
+        height: captureResult['height'],
+      );
 
-      final fileName = FileManagerService.generateFileName(_currentExif, 'png');
+      imageBytes = processedData['jpg'];
+      thumbnailBytes = processedData['thumb'];
+
+      final fileName = FileManagerService.generateFileName(_currentExif, 'jpg');
       String? filePath;
 
       if (!kIsWeb) {
         final directory = await getApplicationDocumentsDirectory();
         filePath = p.join(directory.path, fileName);
         final file = File(filePath);
-        await file.writeAsBytes(imageBytes);
+        if (imageBytes != null) {
+          await file.writeAsBytes(imageBytes);
+        }
       }
 
       final project = PosterProject(
@@ -193,8 +186,6 @@ class _EditorScreenState extends State<EditorScreen> {
       // 대형 그래픽 메모리 객체들의 레퍼런스를 null 처리하여 가비지 수집 즉시 유도
       fileBytes = null;
       imageBytes = null;
-      decodedImage = null;
-      resized = null;
       thumbnailBytes = null;
 
       // 이미지 캐시를 강제 정화하여 렌더링 텍스처 즉시 반환
@@ -202,6 +193,49 @@ class _EditorScreenState extends State<EditorScreen> {
       PaintingBinding.instance.imageCache.clearLiveImages();
 
       if (mounted) setState(() => _isExporting = false);
+    }
+  }
+
+  Future<Map<String, dynamic>> _captureOffscreenWidget(Widget widget, Size targetSize, {double pixelRatio = 1.0}) async {
+    final GlobalKey boundaryKey = GlobalKey();
+    
+    final OverlayEntry entry = OverlayEntry(
+      builder: (context) {
+        return Positioned(
+          left: -targetSize.width * 2,
+          top: -targetSize.height * 2,
+          child: Material(
+            color: Colors.transparent,
+            child: RepaintBoundary(
+              key: boundaryKey,
+              child: SizedBox(
+                width: targetSize.width,
+                height: targetSize.height,
+                child: widget,
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    Overlay.of(context).insert(entry);
+
+    // Wait for the layout and images to load
+    await Future.delayed(const Duration(milliseconds: 500));
+
+    try {
+      final RenderRepaintBoundary boundary = boundaryKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
+      final ui.Image image = await boundary.toImage(pixelRatio: pixelRatio);
+      // 매우 느린 png 인코딩 대신 즉시 반환되는 rawRgba 사용
+      final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      return {
+        'rawRgba': byteData!.buffer.asUint8List(),
+        'width': image.width,
+        'height': image.height,
+      };
+    } finally {
+      entry.remove();
     }
   }
 
@@ -225,11 +259,11 @@ class _EditorScreenState extends State<EditorScreen> {
                     fontFamily: 'Pretendard', 
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
-                    color: Colors.white,
+                    color: AppTheme.uiWhite,
                   ),
                 ),
               ),
-              const Divider(height: 1, color: Colors.white12),
+              Divider(height: 1, color: AppTheme.uiWhite.withAlpha(31)),
               _buildDialogButton(
                 icon: Icons.save_alt_rounded,
                 text: "저장하기",
@@ -247,7 +281,7 @@ class _EditorScreenState extends State<EditorScreen> {
                 },
               ),
               if (!kIsWeb && !Platform.isWindows) ...[
-                const Divider(height: 1, color: Colors.white12),
+                Divider(height: 1, color: AppTheme.uiWhite.withAlpha(31)),
                 _buildDialogButton(
                   icon: Icons.share_outlined,
                   text: "공유",
@@ -259,7 +293,7 @@ class _EditorScreenState extends State<EditorScreen> {
                   },
                 ),
               ],
-              const Divider(height: 1, color: Colors.white12),
+              Divider(height: 1, color: AppTheme.uiWhite.withAlpha(31)),
               _buildDialogButton(
                 icon: Icons.check_rounded,
                 text: "완료",
@@ -276,26 +310,28 @@ class _EditorScreenState extends State<EditorScreen> {
   }
 
   Widget _buildDialogButton({required IconData icon, required String text, required VoidCallback onTap}) {
-    return InkWell(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 20),
-        width: double.infinity,
-        child: Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(icon, color: Colors.white, size: 20),
-            const SizedBox(width: 8),
-            Text(
-              text,
-              style: const TextStyle(
-                fontFamily: 'Pretendard',
-                fontSize: 16,
-                fontWeight: FontWeight.w500,
-                color: Colors.white,
+    return HoverInteraction(
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 20),
+          width: double.infinity,
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              Icon(icon, color: AppTheme.uiWhite, size: 20),
+              const SizedBox(width: 8),
+              Text(
+                text,
+                style: const TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 16,
+                  fontWeight: FontWeight.w500,
+                  color: AppTheme.uiWhite,
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -303,40 +339,34 @@ class _EditorScreenState extends State<EditorScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final bool isDesktop = MediaQuery.of(context).size.width > 800;
+    final bool isDesktop = MediaQuery.of(context).size.width > 1200;
 
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
-      appBar: isDesktop
-          ? AppBar(
-              actions: [
-                _buildSaveButton(),
-                const SizedBox(width: 8),
-              ],
-            )
-          : null,
-      body: isDesktop ? _buildDesktopLayout() : _buildMobileLayout(),
+      body: Stack(
+        children: [
+          isDesktop ? _buildDesktopLayout() : _buildMobileLayout(),
+          LoadingOverlay(isLoading: _isExporting, text: '저장중...'),
+        ],
+      ),
     );
   }
 
   Widget _buildSaveButton() {
-    return IconButton(
-      onPressed: _isExporting ? null : _exportPoster,
-      icon: _isExporting
-          ? const SizedBox(
-              width: 20,
-              height: 20,
-              child: CircularProgressIndicator(strokeWidth: 2),
-            )
-          : const Icon(
-              Icons.save_rounded,
-              color: Colors.white,
-            ),
+    return HoverInteraction(
+      child: IconButton(
+        onPressed: _isExporting ? null : _exportPoster,
+        icon: const Icon(
+          Icons.save_rounded,
+          color: AppTheme.uiWhite,
+        ),
+      ),
     );
   }
 
   Widget _buildDesktopLayout() {
     return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Expanded(
           child: _buildPreviewArea(),
@@ -353,8 +383,18 @@ class _EditorScreenState extends State<EditorScreen> {
               ),
             ],
           ),
-          child: SingleChildScrollView(
-            child: _buildEditPanel(),
+          child: Column(
+            children: [
+              Expanded(
+                child: SingleChildScrollView(
+                  child: _buildEditPanel(),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.only(left: 24, right: 24, bottom: 20, top: 10),
+                child: _buildBottomButtons(),
+              ),
+            ],
           ),
         ),
       ],
@@ -363,39 +403,49 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Widget _buildMobileLayout() {
     final size = MediaQuery.of(context).size;
-    return CustomScrollView(
-      slivers: [
-        SliverAppBar(
-          pinned: true,
-          expandedHeight: size.height * 0.55,
-          actions: [
-            _buildSaveButton(),
-            const SizedBox(width: 8),
-          ],
-          flexibleSpace: FlexibleSpaceBar(
-            background: SafeArea(
-              child: Padding(
-                padding: const EdgeInsets.only(top: kToolbarHeight),
-                child: _buildPreviewArea(),
+    return Column(
+      children: [
+        Expanded(
+          child: CustomScrollView(
+            slivers: [
+              SliverAppBar(
+                pinned: true,
+                automaticallyImplyLeading: false,
+                expandedHeight: size.height * 0.55,
+                collapsedHeight: size.height * 0.25,
+                toolbarHeight: 0,
+                backgroundColor: AppTheme.backgroundColor,
+                surfaceTintColor: Colors.transparent,
+                flexibleSpace: SafeArea(
+                  bottom: false,
+                  child: _buildPreviewArea(),
+                ),
               ),
-            ),
+              SliverToBoxAdapter(
+                child: Container(
+                  constraints: BoxConstraints(minHeight: size.height * 0.45),
+                  decoration: const BoxDecoration(
+                    color: AppTheme.canvasColor,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black12,
+                        blurRadius: 20,
+                        offset: Offset(0, -5),
+                      ),
+                    ],
+                  ),
+                  child: _buildEditPanel(),
+                ),
+              ),
+            ],
           ),
         ),
-        SliverToBoxAdapter(
-          child: Container(
-            constraints: BoxConstraints(minHeight: size.height * 0.45),
-            decoration: const BoxDecoration(
-              color: AppTheme.canvasColor,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(32)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black12,
-                  blurRadius: 20,
-                  offset: Offset(0, -5),
-                ),
-              ],
-            ),
-            child: _buildEditPanel(),
+        Container(
+          color: AppTheme.canvasColor,
+          padding: const EdgeInsets.only(left: 24, right: 24, bottom: 20, top: 10),
+          child: SafeArea(
+            top: false,
+            child: _buildBottomButtons(),
           ),
         ),
       ],
@@ -404,22 +454,17 @@ class _EditorScreenState extends State<EditorScreen> {
 
   Widget _buildPreviewArea() {
     return Container(
-      padding: const EdgeInsets.all(24),
+      padding: const EdgeInsets.all(10),
       child: Stack(
         children: [
-          Screenshot(
-            controller: _screenshotController,
-            child: Center(
-              child: AspectRatio(
-                aspectRatio: 3 / 4,
-                child: PosterCanvas(
-                  imagePath: widget.imagePath,
-                  webImageBytes: widget.webImageBytes,
-                  exifData: _currentExif,
-                  imageRotation: _imageRotation,
-                  isPreview: true,
-                ),
-              ),
+          Align(
+            alignment: Alignment.center,
+            child: PosterCanvas(
+              imagePath: widget.imagePath,
+              webImageBytes: widget.webImageBytes,
+              exifData: _currentExif,
+              imageRotation: _imageRotation,
+              isPreview: true,
             ),
           ),
           Positioned(
@@ -430,13 +475,15 @@ class _EditorScreenState extends State<EditorScreen> {
                 color: Colors.black.withAlpha(128),
                 shape: BoxShape.circle,
               ),
-              child: IconButton(
-                icon: const Icon(Icons.rotate_90_degrees_ccw, color: Colors.white),
-                onPressed: () {
-                  setState(() {
-                    _imageRotation = (_imageRotation + 1) % 4;
-                  });
-                },
+              child: HoverInteraction(
+                child: IconButton(
+                  icon: const Icon(Icons.rotate_90_degrees_ccw, color: AppTheme.uiWhite),
+                  onPressed: () {
+                    setState(() {
+                      _imageRotation = (_imageRotation + 1) % 4;
+                    });
+                  },
+                ),
               ),
             ),
           ),
@@ -457,7 +504,7 @@ class _EditorScreenState extends State<EditorScreen> {
             (v) => setState(() => _currentExif.cameraMake = v),
           ),
           _buildElegantField(
-            "카메라",
+            "모델명",
             _cameraNameController,
             (v) => setState(() => _currentExif.cameraName = v),
           ),
@@ -517,6 +564,66 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
+  Widget _buildBottomButtons() {
+    return Row(
+      children: [
+        Expanded(
+          child: HoverInteraction(
+            child: InkWell(
+              onTap: () => Navigator.pop(context),
+              borderRadius: BorderRadius.circular(30),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF2C2C2E),
+                  borderRadius: BorderRadius.circular(30),
+                ),
+                child: const Center(
+                  child: Text(
+                    '취소',
+                    style: TextStyle(
+                      fontFamily: 'Pretendard',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: AppTheme.uiWhite,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+        Expanded(
+          child: HoverInteraction(
+            child: InkWell(
+              onTap: _isExporting ? null : _exportPoster,
+              borderRadius: BorderRadius.circular(30),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: _isExporting ? Colors.grey.withAlpha(100) : AppTheme.uiWhite,
+                  borderRadius: BorderRadius.circular(30),
+                ),
+                child: Center(
+                  child: Text(
+                    _isExporting ? '저장중...' : '저장하기',
+                    style: const TextStyle(
+                      fontFamily: 'Pretendard',
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.black,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _buildElegantField(
     String label,
     TextEditingController controller,
@@ -531,7 +638,7 @@ class _EditorScreenState extends State<EditorScreen> {
             label,
             style: TextStyle(fontFamily: 'Pretendard', 
               fontSize: 16,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w400,
               color: AppTheme.subtitleColor.withAlpha(150),
             ),
           ),
@@ -565,75 +672,111 @@ class _EditorScreenState extends State<EditorScreen> {
             label,
             style: TextStyle(fontFamily: 'Pretendard', 
               fontSize: 16,
-              fontWeight: FontWeight.w700,
+              fontWeight: FontWeight.w400,
               color: AppTheme.subtitleColor.withAlpha(150),
             ),
           ),
           InkWell(
-            onTap: () async {
-              final initialDate = value ?? DateTime.now();
-              final date = await showDatePicker(
-                context: context,
-                initialDate: initialDate,
-                firstDate: DateTime(1900),
-                lastDate: DateTime.now(),
-                builder: (context, child) {
-                  return Theme(
-                    data: Theme.of(context).copyWith(
-                      colorScheme: const ColorScheme.dark(
-                        primary: AppTheme.primaryColor,
-                        onPrimary: Colors.black,
-                        surface: AppTheme.canvasColor,
-                        onSurface: Colors.white,
-                      ),
-                    ),
-                    child: child!,
-                  );
-                },
-              );
-              if (date != null && mounted) {
-                final time = await showTimePicker(
+              onTap: () async {
+                final initialDate = value ?? DateTime.now();
+                final date = await showDatePicker(
                   context: context,
-                  initialTime: TimeOfDay.fromDateTime(initialDate),
+                  initialDate: initialDate,
+                  firstDate: DateTime(1900),
+                  lastDate: DateTime.now(),
                   builder: (context, child) {
                     return Theme(
                       data: Theme.of(context).copyWith(
                         colorScheme: const ColorScheme.dark(
-                          primary: AppTheme.primaryColor,
+                          primary: AppTheme.uiWhite,
                           onPrimary: Colors.black,
                           surface: AppTheme.canvasColor,
-                          onSurface: Colors.white,
+                          onSurface: AppTheme.uiWhite,
+                          secondary: AppTheme.uiWhite,
+                          onSecondary: Colors.black,
+                          surfaceTint: Colors.transparent,
+                        ),
+                        textButtonTheme: TextButtonThemeData(
+                          style: TextButton.styleFrom(
+                            foregroundColor: AppTheme.uiWhite,
+                            textStyle: const TextStyle(fontFamily: 'Pretendard', fontWeight: FontWeight.w600),
+                          ),
                         ),
                       ),
                       child: child!,
                     );
                   },
                 );
-                if (time != null && mounted) {
-                  setState(() {
-                    _currentExif.shotDate = DateTime(
-                      date.year,
-                      date.month,
-                      date.day,
-                      time.hour,
-                      time.minute,
-                    );
-                  });
+
+                if (date != null && mounted) {
+                  final time = await showTimePicker(
+                    context: context,
+                    initialTime: TimeOfDay.fromDateTime(initialDate),
+                    builder: (context, child) {
+                      return Theme(
+                        data: Theme.of(context).copyWith(
+                          colorScheme: const ColorScheme.dark(
+                            primary: AppTheme.uiWhite,
+                            onPrimary: Colors.black,
+                            surface: AppTheme.canvasColor,
+                            onSurface: AppTheme.uiWhite,
+                            secondary: AppTheme.uiWhite,
+                            onSecondary: Colors.black,
+                            surfaceTint: Colors.transparent,
+                          ),
+                          timePickerTheme: TimePickerThemeData(
+                            backgroundColor: AppTheme.canvasColor,
+                            hourMinuteTextColor: AppTheme.uiWhite,
+                            hourMinuteColor: AppTheme.uiWhite.withAlpha(20),
+                            dayPeriodTextColor: WidgetStateColor.resolveWith((states) =>
+                                states.contains(WidgetState.selected) ? Colors.black : AppTheme.uiWhite),
+                            dayPeriodColor: WidgetStateColor.resolveWith((states) =>
+                                states.contains(WidgetState.selected) ? AppTheme.uiWhite : AppTheme.uiWhite.withAlpha(20)),
+                            dialHandColor: AppTheme.uiWhite,
+                            dialBackgroundColor: AppTheme.uiWhite.withAlpha(10),
+                            dialTextColor: WidgetStateColor.resolveWith((states) =>
+                                states.contains(WidgetState.selected) ? Colors.black : AppTheme.uiWhite),
+                            entryModeIconColor: AppTheme.uiWhite,
+                            helpTextStyle: const TextStyle(color: AppTheme.uiWhite, fontFamily: 'Pretendard'),
+                            cancelButtonStyle: TextButton.styleFrom(foregroundColor: AppTheme.uiWhite, textStyle: const TextStyle(fontFamily: 'Pretendard')),
+                            confirmButtonStyle: TextButton.styleFrom(foregroundColor: AppTheme.uiWhite, textStyle: const TextStyle(fontFamily: 'Pretendard')),
+                          ),
+                          textButtonTheme: TextButtonThemeData(
+                            style: TextButton.styleFrom(
+                              foregroundColor: AppTheme.uiWhite,
+                              textStyle: const TextStyle(fontFamily: 'Pretendard', fontWeight: FontWeight.w600),
+                            ),
+                          ),
+                        ),
+                        child: child!,
+                      );
+                    },
+                  );
+                  if (time != null && mounted) {
+                    setState(() {
+                      _currentExif.shotDate = DateTime(
+                        date.year,
+                        date.month,
+                        date.day,
+                        time.hour,
+                        time.minute,
+                      );
+                    });
+                  }
                 }
-              }
-            },
-            child: Container(
-              width: double.infinity,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: Text(
-                displayDate.isEmpty ? "날짜 선택" : displayDate,
-                style: TextStyle(fontFamily: 'Pretendard', 
-                  fontSize: 18,
-                  fontWeight: FontWeight.w500,
-                  color: displayDate.isEmpty ? Colors.grey : Colors.white,
+              },
+              child: Container(
+                width: double.infinity,
+                padding: const EdgeInsets.symmetric(vertical: 8),
+                child: Text(
+                  displayDate.isEmpty ? "날짜 선택" : displayDate,
+                  style: TextStyle(fontFamily: 'Pretendard', 
+                    fontSize: 18,
+                    fontWeight: FontWeight.w500,
+                    color: displayDate.isEmpty ? Colors.grey : AppTheme.uiWhite,
+                  ),
                 ),
               ),
-            ),
           ),
           Container(height: 1, color: Colors.grey.withAlpha(50)),
         ],
@@ -641,3 +784,4 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 }
+

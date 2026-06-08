@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/loading_overlay.dart';
 
 class PrivacySection {
   final String? title;
@@ -105,6 +106,12 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: AppTheme.backgroundColor,
+      body: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 1000),
+          child: Scaffold(
+            backgroundColor: Colors.transparent,
+            extendBodyBehindAppBar: true,
       appBar: AppBar(
         title: const Text(
           '개인정보 처리방침',
@@ -114,10 +121,22 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
             fontSize: 18,
           ),
         ),
-        backgroundColor: const Color(0xFF1E1E1E),
+        backgroundColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
         surfaceTintColor: Colors.transparent,
+        flexibleSpace: Container(
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [
+                AppTheme.backgroundColor,
+                AppTheme.backgroundColor.withAlpha(0),
+              ],
+            ),
+          ),
+        ),
         leading: IconButton(
           icon: const Icon(Icons.arrow_back_ios_new_rounded, size: 20),
           onPressed: () => Navigator.pop(context),
@@ -126,14 +145,11 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
       body: FutureBuilder<PrivacyPolicyData>(
         future: _privacyDataFuture,
         builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(
-                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-              ),
-            );
-          } else if (snapshot.hasError) {
-            return Center(
+          Widget content;
+          final bool isLoading = snapshot.connectionState == ConnectionState.waiting;
+
+          if (snapshot.hasError) {
+            content = Center(
               child: Text(
                 '개인정보 처리방침을 불러오는 중 오류가 발생했습니다.\n${snapshot.error}',
                 textAlign: TextAlign.center,
@@ -144,8 +160,8 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
                 ),
               ),
             );
-          } else if (!snapshot.hasData) {
-            return const Center(
+          } else if (!isLoading && !snapshot.hasData) {
+            content = const Center(
               child: Text(
                 '개인정보 처리방침을 찾을 수 없습니다.',
                 style: TextStyle(
@@ -155,11 +171,10 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
                 ),
               ),
             );
-          }
-
-          final data = snapshot.data!;
-          return SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
+          } else if (snapshot.hasData) {
+            final data = snapshot.data!;
+            content = SingleChildScrollView(
+            padding: const EdgeInsets.only(left: 24.0, right: 24.0, top: 100.0, bottom: 20.0),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -223,7 +238,20 @@ class _PrivacyPolicyScreenState extends State<PrivacyPolicyScreen> {
               ],
             ),
           );
+          } else {
+            content = const SizedBox.shrink();
+          }
+
+          return Stack(
+            children: [
+              content,
+              LoadingOverlay(isLoading: isLoading),
+            ],
+          );
         },
+      ),
+          ),
+        ),
       ),
     );
   }

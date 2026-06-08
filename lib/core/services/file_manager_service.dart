@@ -5,7 +5,6 @@ import 'package:path/path.dart' as p;
 import 'package:share_plus/share_plus.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_file_dialog/flutter_file_dialog.dart';
-import 'package:cross_file/cross_file.dart' as cross;
 import 'package:intl/intl.dart';
 import '../models/exif_data.dart';
 
@@ -71,7 +70,7 @@ class FileManagerService {
       Uint8List? bytes = webBytes;
       if (bytes == null) {
         try {
-          final xfile = cross.XFile(imagePath);
+          final xfile = XFile(imagePath);
           bytes = await xfile.readAsBytes();
         } catch (e) {
           debugPrint('Failed to read image bytes on Web: $e');
@@ -83,7 +82,7 @@ class FileManagerService {
         final name = customFileName ?? p.basename(imagePath);
         final fileName = name.endsWith('.$finalExt') ? name : '$name.$finalExt';
         
-        final xfile = cross.XFile.fromData(bytes, name: fileName, mimeType: finalExt == 'png' ? 'image/png' : 'image/jpeg');
+        final xfile = XFile.fromData(bytes, name: fileName, mimeType: finalExt == 'png' ? 'image/png' : 'image/jpeg');
         await xfile.saveTo(fileName);
       }
       return; // Always return early on Web to prevent native platform channel calls
@@ -117,7 +116,7 @@ class FileManagerService {
       );
       await FlutterFileDialog.saveFile(params: params);
     } else {
-      await Share.shareXFiles([cross.XFile(imagePath)], text: 'Check out my poster!');
+      await Share.shareXFiles([XFile(imagePath)], text: 'Check out my poster!');
     }
   }
 }

@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:heic_to_png_jpg/heic_to_png_jpg.dart';
@@ -11,6 +12,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/models/poster_project.dart';
 import '../../core/services/database_service.dart';
+import '../../widgets/loading_overlay.dart';
 import '../../core/services/exif_service.dart';
 import '../../core/services/file_manager_service.dart';
 import '../../core/utils/heic_converter_web.dart';
@@ -18,6 +20,7 @@ import '../../theme/app_theme.dart';
 import '../editor/editor_screen.dart';
 import 'custom_license_screen.dart';
 import 'privacy_policy_screen.dart';
+import '../../widgets/hover_interaction.dart';
 
 class GalleryScreen extends StatefulWidget {
   const GalleryScreen({super.key});
@@ -132,45 +135,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
   void _viewImage(PosterProject project) {
     showDialog(
       context: context,
-      builder: (context) => Dialog(
-        backgroundColor: Colors.transparent,
-        insetPadding: EdgeInsets.zero,
-        child: GestureDetector(
-          onTap: () => Navigator.pop(context),
-          child: InteractiveViewer(
-            child: kIsWeb
-                ? FutureBuilder<Uint8List?>(
-                    future: project.id != null
-                        ? DatabaseService().getOriginalImageBytes(project.id!)
-                        : Future.value(null),
-                    builder: (context, snapshot) {
-                      if (snapshot.connectionState == ConnectionState.waiting) {
-                        return const Center(
-                          child: CircularProgressIndicator(
-                            valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                          ),
-                        );
-                      }
-                      final bytes = snapshot.data ?? project.webExportedImageBytes;
-                      if (bytes != null) {
-                        return Image.memory(
-                          bytes,
-                          fit: BoxFit.contain,
-                        );
-                      }
-                      return Image.network(
-                        project.originalImagePath,
-                        fit: BoxFit.contain,
-                      );
-                    },
-                  )
-                : Image.file(
-                    File(project.exportedImagePath ?? project.originalImagePath),
-                    fit: BoxFit.contain,
-                  ),
-          ),
-        ),
-      ),
+      barrierColor: Colors.black.withAlpha(204), // 80% opacity black barrier
+      builder: (context) => _ImageViewerDialog(project: project),
     );
   }
 
@@ -193,6 +159,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
               }
               _loadProjects();
             },
+          );
+        },
+        transitionsBuilder: (context, animation, secondaryAnimation, child) {
+          return FadeTransition(
+            opacity: animation,
+            child: child,
           );
         },
       ),
@@ -246,42 +218,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
                       crossAxisAlignment: CrossAxisAlignment.center,
                       children: [
                         // Logo Image
-                        Image.asset(
-                          'assets/images/logoFullPng.png',
+                        SvgPicture.asset(
+                          'assets/images/logoFullSvg.svg',
                           height: 48,
                           fit: BoxFit.contain,
-                          errorBuilder: (context, error, stackTrace) {
-                            return Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                const Icon(Icons.photo_library_outlined, color: Colors.white, size: 32),
-                                const SizedBox(width: 8),
-                                Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: const [
-                                    Text(
-                                      'EXIF',
-                                      style: TextStyle(
-                                        fontFamily: 'Pretendard',
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w500,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                    Text(
-                                      'Room',
-                                      style: TextStyle(
-                                        fontFamily: 'Pretendard',
-                                        fontSize: 18,
-                                        fontWeight: FontWeight.bold,
-                                        color: Colors.white,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ],
-                            );
-                          },
                         ),
                         const SizedBox(height: 6),
                         // Version
@@ -315,13 +255,6 @@ class _GalleryScreenState extends State<GalleryScreen> {
                         ),
                         const SizedBox(height: 10),
                         _buildInfoMenuButton(
-                          text: 'Github Repository',
-                          onTap: () {
-                            _launchURL('https://github.com/juhyunb05/EXIF_Room');
-                          },
-                        ),
-                        const SizedBox(height: 10),
-                        _buildInfoMenuButton(
                           text: '개인정보 처리방침',
                           onTap: () {
                             Navigator.push(
@@ -337,6 +270,14 @@ class _GalleryScreenState extends State<GalleryScreen> {
                             );
                           },
                         ),
+                        const SizedBox(height: 10),
+                        _buildInfoMenuButton(
+                          text: 'Github Repository',
+                          isExternal: true,
+                          onTap: () {
+                            _launchURL('https://github.com/juhyunb05/EXIF_Room');
+                          },
+                        ),
                       ],
                     ),
                   ),
@@ -346,26 +287,28 @@ class _GalleryScreenState extends State<GalleryScreen> {
                   right: 0,
                   bottom: 0,
                   child: Center(
-                    child: GestureDetector(
-                      onTap: () {
-                        Navigator.pop(dialogContext);
-                        _showClearDataConfirmation(context);
-                      },
-                      child: Container(
-                        width: 240, // Fixed width 240
-                        height: 40, // Fixed height 40
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF3D0C0C),
-                          borderRadius: BorderRadius.circular(20), // Border radius 20
-                        ),
-                        child: const Center(
-                          child: Text(
-                            '모든 데이터 지우기',
-                            style: TextStyle(
-                              fontFamily: 'Pretendard',
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFFFF453A),
+                    child: HoverInteraction(
+                      child: GestureDetector(
+                        onTap: () {
+                          Navigator.pop(dialogContext);
+                          _showClearDataConfirmation(context);
+                        },
+                        child: Container(
+                          width: 240, // Fixed width 240
+                          height: 40, // Fixed height 40
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF3D0C0C),
+                            borderRadius: BorderRadius.circular(20), // Border radius 20
+                          ),
+                          child: const Center(
+                            child: Text(
+                              '모든 데이터 지우기',
+                              style: TextStyle(
+                                fontFamily: 'Pretendard',
+                                fontSize: 15,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFFFF453A),
+                              ),
                             ),
                           ),
                         ),
@@ -381,21 +324,36 @@ class _GalleryScreenState extends State<GalleryScreen> {
     );
   }
 
-  Widget _buildInfoMenuButton({required String text, required VoidCallback onTap}) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 16),
-        alignment: Alignment.centerLeft,
-        child: Text(
-          text,
-          style: const TextStyle(
-            fontFamily: 'Pretendard',
-            fontSize: 16,
-            fontWeight: FontWeight.w400,
-            color: Color(0xFFF0F4F8),
+  Widget _buildInfoMenuButton({required String text, required VoidCallback onTap, bool isExternal = false}) {
+    return HoverInteraction(
+      enableScale: false,
+      child: GestureDetector(
+        onTap: onTap,
+        behavior: HitTestBehavior.opaque,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 16),
+          alignment: Alignment.centerLeft,
+          child: Row(
+            children: [
+              Text(
+                text,
+                style: const TextStyle(
+                  fontFamily: 'Pretendard',
+                  fontSize: 16,
+                  fontWeight: FontWeight.w400,
+                  color: Color(0xFFF0F4F8),
+                ),
+              ),
+              if (isExternal) ...[
+                const SizedBox(width: 8),
+                const Icon(
+                  Icons.open_in_new_rounded,
+                  size: 16,
+                  color: Color(0xFF8E8E93),
+                ),
+              ],
+            ],
           ),
         ),
       ),
@@ -426,7 +384,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                     fontFamily: 'Pretendard',
                     fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    color: Colors.white,
+                    color: AppTheme.uiWhite,
                   ),
                 ),
                 const SizedBox(height: 8),
@@ -444,22 +402,24 @@ class _GalleryScreenState extends State<GalleryScreen> {
                 Row(
                   children: [
                     Expanded(
-                      child: GestureDetector(
-                        onTap: () => Navigator.pop(context),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF2C2C2E),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Center(
-                            child: Text(
-                              '취소',
-                              style: TextStyle(
-                                fontFamily: 'Pretendard',
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                                color: Colors.white,
+                      child: HoverInteraction(
+                        child: GestureDetector(
+                          onTap: () => Navigator.pop(context),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2C2C2E),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Center(
+                              child: Text(
+                                '취소',
+                                style: TextStyle(
+                                  fontFamily: 'Pretendard',
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.uiWhite,
+                                ),
                               ),
                             ),
                           ),
@@ -468,50 +428,44 @@ class _GalleryScreenState extends State<GalleryScreen> {
                     ),
                     const SizedBox(width: 12),
                     Expanded(
-                      child: GestureDetector(
-                        onTap: () async {
-                          final messenger = ScaffoldMessenger.of(context);
-                          Navigator.pop(context);
-                          
-                          // Perform clear
-                          await DatabaseService().clearAllData();
-                          
-                          if (!kIsWeb) {
-                            try {
-                              final dir = await getApplicationDocumentsDirectory();
-                              final importedDir = Directory(p.join(dir.path, 'imported_images'));
-                              if (await importedDir.exists()) {
-                                await importedDir.delete(recursive: true);
+                      child: HoverInteraction(
+                        child: GestureDetector(
+                          onTap: () async {
+                            Navigator.pop(context);
+                            
+                            // Perform clear
+                            await DatabaseService().clearAllData();
+                            
+                            if (!kIsWeb) {
+                              try {
+                                final dir = await getApplicationDocumentsDirectory();
+                                final importedDir = Directory(p.join(dir.path, 'imported_images'));
+                                if (await importedDir.exists()) {
+                                  await importedDir.delete(recursive: true);
+                                }
+                              } catch (e) {
+                                debugPrint('Failed to delete files: $e');
                               }
-                            } catch (e) {
-                              debugPrint('Failed to delete files: $e');
                             }
-                          }
-                          
-                          // Reload projects list
-                          _loadProjects();
-                          
-                          messenger.showSnackBar(
-                            const SnackBar(
-                              content: Text('모든 데이터가 삭제되었습니다.'),
-                              backgroundColor: Color(0xFF3D0C0C),
+                            
+                            // Reload projects list
+                            _loadProjects();
+                          },
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF3D0C0C),
+                              borderRadius: BorderRadius.circular(12),
                             ),
-                          );
-                        },
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF3D0C0C),
-                            borderRadius: BorderRadius.circular(12),
-                          ),
-                          child: const Center(
-                            child: Text(
-                              '지우기',
-                              style: TextStyle(
-                                fontFamily: 'Pretendard',
-                                fontSize: 15,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFFFF453A),
+                            child: const Center(
+                              child: Text(
+                                '지우기',
+                                style: TextStyle(
+                                  fontFamily: 'Pretendard',
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFFFF453A),
+                                ),
                               ),
                             ),
                           ),
@@ -566,42 +520,44 @@ class _GalleryScreenState extends State<GalleryScreen> {
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          GestureDetector(
-                            onTap: () {}, // Current gallery
-                            behavior: HitTestBehavior.opaque,
-                            child: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                              child: Icon(Icons.dashboard_rounded, color: Color(0xFFF0F4F8), size: 22),
+                          HoverInteraction(
+                            child: GestureDetector(
+                              onTap: () {}, // Current gallery
+                              behavior: HitTestBehavior.opaque,
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                                child: Icon(Icons.dashboard_rounded, color: Color(0xFFF0F4F8), size: 22),
+                              ),
                             ),
                           ),
-                          GestureDetector(
-                            onTap: () {}, // Add category
-                            behavior: HitTestBehavior.opaque,
-                            child: const Padding(
-                              padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                              child: Icon(Icons.add, color: Color(0xFFF0F4F8), size: 22),
+                          HoverInteraction(
+                            child: GestureDetector(
+                              onTap: () {}, // Add category
+                              behavior: HitTestBehavior.opaque,
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                                child: Icon(Icons.add, color: Color(0xFFF0F4F8), size: 22),
+                              ),
                             ),
                           ),
                         ],
                       ),
                     ),
                     actions: [
-                      GestureDetector(
-                        onTap: () => _showInfoDialog(context), // Info button
-                        behavior: HitTestBehavior.opaque,
-                        child: const Padding(
-                          padding: EdgeInsets.all(12.0),
-                          child: Icon(Icons.info_outline_rounded, color: Color(0xFFF0F4F8), size: 24),
+                      HoverInteraction(
+                        child: GestureDetector(
+                          onTap: () => _showInfoDialog(context), // Info button
+                          behavior: HitTestBehavior.opaque,
+                          child: const Padding(
+                            padding: EdgeInsets.all(12.0),
+                            child: Icon(Icons.info_outline_rounded, color: Color(0xFFF0F4F8), size: 24),
+                          ),
                         ),
                       ),
                       const SizedBox(width: 8),
                     ],
                   ),
-                  if (_isLoading)
-                    const SliverFillRemaining(
-                      child: Center(child: CircularProgressIndicator()),
-                    )
-                  else if (_projects.isEmpty)
+                  if (_isLoading || _projects.isEmpty)
                     _buildEmptyState()
                   else
                     _buildProjectGrid(),
@@ -632,23 +588,26 @@ class _GalleryScreenState extends State<GalleryScreen> {
                 left: 0,
                 right: 0,
                 child: Center(
-                  child: GestureDetector(
-                    onTap: _pickImage,
-                    behavior: HitTestBehavior.opaque,
-                    child: Container(
-                      width: 96,
-                      height: 48,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF222222),
-                        borderRadius: BorderRadius.circular(24),
-                      ),
-                      child: const Center(
-                        child: Icon(Icons.add, color: Color(0xFFF0F4F8), size: 28),
+                  child: HoverInteraction(
+                    child: GestureDetector(
+                      onTap: _pickImage,
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        width: 96,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF222222),
+                          borderRadius: BorderRadius.circular(24),
+                        ),
+                        child: const Center(
+                          child: Icon(Icons.add, color: Color(0xFFF0F4F8), size: 28),
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
+              LoadingOverlay(isLoading: _isLoading),
             ],
           ),
         ),
@@ -703,52 +662,54 @@ class _GalleryScreenState extends State<GalleryScreen> {
           final project = _projects[index];
           return Builder(
             builder: (itemContext) {
-              return Hero(
-                tag: project.id ?? project.hashCode,
-                child: GestureDetector(
-                  onTap: () => _viewImage(project),
-                  onLongPress: () {
-                    final box = itemContext.findRenderObject() as RenderBox;
-                    final rect = box.localToGlobal(Offset.zero) & box.size;
-                    _showProjectOptions(context, project, rect);
-                  },
-                  onSecondaryTap: () {
-                    final box = itemContext.findRenderObject() as RenderBox;
-                    final rect = box.localToGlobal(Offset.zero) & box.size;
-                    _showProjectOptions(context, project, rect);
-                  },
-                  child: Container(
-                    decoration: BoxDecoration(
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withAlpha(20),
-                          blurRadius: 15,
-                          offset: const Offset(0, 8),
-                        ),
-                      ],
-                    ),
-                    child: project.thumbnailBytes != null
-                        ? Image.memory(
-                            project.thumbnailBytes!,
-                            fit: BoxFit.cover,
-                          )
-                        : (kIsWeb
-                            ? (project.webExportedImageBytes != null
-                                ? Image.memory(
-                                    project.webExportedImageBytes!,
-                                    cacheWidth: 300,
-                                  )
-                                : Image.network(
-                                    project.originalImagePath,
-                                    cacheWidth: 300,
-                                  ))
-                            : Image.file(
-                                File(
-                                  project.exportedImagePath ??
+              return HoverInteraction(
+                child: Hero(
+                  tag: project.id ?? project.hashCode,
+                  child: GestureDetector(
+                    onTap: () => _viewImage(project),
+                    onLongPress: () {
+                      final box = itemContext.findRenderObject() as RenderBox;
+                      final rect = box.localToGlobal(Offset.zero) & box.size;
+                      _showProjectOptions(context, project, rect);
+                    },
+                    onSecondaryTap: () {
+                      final box = itemContext.findRenderObject() as RenderBox;
+                      final rect = box.localToGlobal(Offset.zero) & box.size;
+                      _showProjectOptions(context, project, rect);
+                    },
+                    child: Container(
+                      decoration: BoxDecoration(
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withAlpha(20),
+                            blurRadius: 15,
+                            offset: const Offset(0, 8),
+                          ),
+                        ],
+                      ),
+                      child: project.thumbnailBytes != null
+                          ? Image.memory(
+                              project.thumbnailBytes!,
+                              fit: BoxFit.cover,
+                            )
+                          : (kIsWeb
+                              ? (project.webExportedImageBytes != null
+                                  ? Image.memory(
+                                      project.webExportedImageBytes!,
+                                      cacheWidth: 300,
+                                    )
+                                  : Image.network(
                                       project.originalImagePath,
-                                ),
-                                cacheWidth: 300,
-                              )),
+                                      cacheWidth: 300,
+                                    ))
+                              : Image.file(
+                                  File(
+                                    project.exportedImagePath ??
+                                        project.originalImagePath,
+                                  ),
+                                  cacheWidth: 300,
+                                )),
+                    ),
                   ),
                 ),
               );
@@ -829,16 +790,16 @@ class _ProjectContextMenuState extends State<_ProjectContextMenu> with SingleTic
             left: widget.itemRect.left,
             width: widget.itemRect.width,
             height: widget.itemRect.height,
-            child: AnimatedBuilder(
-              animation: _scaleAnimation,
-              builder: (context, child) {
-                return Transform.scale(
-                  scale: _scaleAnimation.value,
-                  child: child,
-                );
-              },
-              child: Hero(
-                tag: widget.project.id ?? widget.project.hashCode,
+            child: Hero(
+              tag: widget.project.id ?? widget.project.hashCode,
+              child: AnimatedBuilder(
+                animation: _scaleAnimation,
+                builder: (context, child) {
+                  return Transform.scale(
+                    scale: _scaleAnimation.value,
+                    child: child,
+                  );
+                },
                 child: GestureDetector(
                   onTap: () => Navigator.pop(context),
                   child: Container(
@@ -851,20 +812,28 @@ class _ProjectContextMenuState extends State<_ProjectContextMenu> with SingleTic
                         ),
                       ],
                     ),
-                    child: kIsWeb 
-                      ? (widget.project.webExportedImageBytes != null
-                          ? Image.memory(
-                              widget.project.webExportedImageBytes!,
-                              fit: BoxFit.contain,
-                            )
-                          : Image.network(
-                              widget.project.exportedImagePath ?? widget.project.originalImagePath,
-                              fit: BoxFit.contain,
-                            ))
-                      : Image.file(
-                          File(widget.project.exportedImagePath ?? widget.project.originalImagePath),
-                          fit: BoxFit.contain, // Maintain aspect ratio when scaled
-                        ),
+                    child: widget.project.thumbnailBytes != null
+                        ? Image.memory(
+                            widget.project.thumbnailBytes!,
+                            fit: BoxFit.cover,
+                          )
+                        : (kIsWeb 
+                            ? (widget.project.webExportedImageBytes != null
+                                ? Image.memory(
+                                    widget.project.webExportedImageBytes!,
+                                    fit: BoxFit.cover,
+                                    cacheWidth: 300,
+                                  )
+                                : Image.network(
+                                    widget.project.exportedImagePath ?? widget.project.originalImagePath,
+                                    fit: BoxFit.cover,
+                                    cacheWidth: 300,
+                                  ))
+                            : Image.file(
+                                File(widget.project.exportedImagePath ?? widget.project.originalImagePath),
+                                fit: BoxFit.cover,
+                                cacheWidth: 300,
+                              )),
                   ),
                 ),
               ),
@@ -890,34 +859,40 @@ class _ProjectContextMenuState extends State<_ProjectContextMenu> with SingleTic
                       child: Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                        IconButton(
-                          icon: const Icon(Icons.arrow_downward_rounded, color: Colors.black87),
-                          onPressed: () {
-                            Navigator.pop(context);
-                            final path = widget.project.exportedImagePath ?? widget.project.originalImagePath;
-                            final ext = p.extension(path).isEmpty ? 'png' : p.extension(path).replaceAll('.', '');
-                            final customName = FileManagerService.generateFileName(widget.project.exif, ext);
-                            FileManagerService.shareOrSaveImage(
-                              path,
-                              !kIsWeb && Platform.isWindows,
-                              saveToDevice: true,
-                              webBytes: widget.project.webExportedImageBytes,
-                              customFileName: customName,
-                            );
-                          },
-                        ),
-                        if (!kIsWeb && !Platform.isWindows)
-                          IconButton(
-                            icon: const Icon(Icons.share_rounded, color: Colors.black87),
+                        HoverInteraction(
+                          child: IconButton(
+                            icon: const Icon(Icons.arrow_downward_rounded, color: Colors.black87),
                             onPressed: () {
                               Navigator.pop(context);
                               final path = widget.project.exportedImagePath ?? widget.project.originalImagePath;
-                              FileManagerService.shareOrSaveImage(path, false);
+                              final ext = p.extension(path).isEmpty ? 'png' : p.extension(path).replaceAll('.', '');
+                              final customName = FileManagerService.generateFileName(widget.project.exif, ext);
+                              FileManagerService.shareOrSaveImage(
+                                path,
+                                !kIsWeb && Platform.isWindows,
+                                saveToDevice: true,
+                                webBytes: widget.project.webExportedImageBytes,
+                                customFileName: customName,
+                              );
                             },
                           ),
-                        IconButton(
-                          icon: const Icon(Icons.delete_outline_rounded, color: Colors.red),
-                          onPressed: widget.onDelete,
+                        ),
+                        if (!kIsWeb && !Platform.isWindows)
+                          HoverInteraction(
+                            child: IconButton(
+                              icon: const Icon(Icons.share_rounded, color: Colors.black87),
+                              onPressed: () {
+                                Navigator.pop(context);
+                                final path = widget.project.exportedImagePath ?? widget.project.originalImagePath;
+                                FileManagerService.shareOrSaveImage(path, false);
+                              },
+                            ),
+                          ),
+                        HoverInteraction(
+                          child: IconButton(
+                            icon: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+                            onPressed: widget.onDelete,
+                          ),
                         ),
                       ],
                     ),
@@ -928,6 +903,115 @@ class _ProjectContextMenuState extends State<_ProjectContextMenu> with SingleTic
           ),
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _ImageViewerDialog extends StatefulWidget {
+  final PosterProject project;
+
+  const _ImageViewerDialog({required this.project});
+
+  @override
+  State<_ImageViewerDialog> createState() => _ImageViewerDialogState();
+}
+
+class _ImageViewerDialogState extends State<_ImageViewerDialog> {
+  late final Future<Uint8List?> _imageBytesFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _imageBytesFuture = _loadImageBytes();
+  }
+
+  @override
+  void dispose() {
+    // Explicitly clear the image cache to free up memory from the high-res original image
+    PaintingBinding.instance.imageCache.clear();
+    PaintingBinding.instance.imageCache.clearLiveImages();
+    super.dispose();
+  }
+
+  Future<Uint8List?> _loadImageBytes() async {
+    // Artificial delay to show the premium loading indicator
+    await Future.delayed(const Duration(milliseconds: 400));
+
+    if (kIsWeb) {
+      if (widget.project.id != null) {
+        final bytes = await DatabaseService().getOriginalImageBytes(widget.project.id!);
+        if (bytes != null) return bytes;
+      }
+      return widget.project.webExportedImageBytes;
+    } else {
+      final path = widget.project.exportedImagePath ?? widget.project.originalImagePath;
+      final file = File(path);
+      if (await file.exists()) {
+        return await file.readAsBytes();
+      }
+    }
+    return null;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => Navigator.pop(context),
+        child: Center(
+          child: Container(
+            constraints: const BoxConstraints(maxHeight: 800),
+            child: FutureBuilder<Uint8List?>(
+              future: _imageBytesFuture,
+              builder: (context, snapshot) {
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return const SizedBox(
+                    height: 800,
+                    width: double.infinity,
+                    child: LoadingOverlay(
+                      isLoading: true,
+                      text: '로딩중...',
+                      backgroundColor: Colors.transparent,
+                    ),
+                  );
+                }
+
+                final bytes = snapshot.data;
+                if (bytes != null) {
+                  return InteractiveViewer(
+                    clipBehavior: Clip.none,
+                    minScale: 0.5,
+                    maxScale: 5.0,
+                    child: Image.memory(
+                      bytes,
+                      fit: BoxFit.contain,
+                    ),
+                  );
+                }
+
+                // Fallback
+                return InteractiveViewer(
+                  clipBehavior: Clip.none,
+                  minScale: 0.5,
+                  maxScale: 5.0,
+                  child: kIsWeb
+                      ? Image.network(
+                          widget.project.originalImagePath,
+                          fit: BoxFit.contain,
+                        )
+                      : Image.file(
+                          File(widget.project.exportedImagePath ?? widget.project.originalImagePath),
+                          fit: BoxFit.contain,
+                        ),
+                );
+              },
+            ),
+          ),
+        ),
       ),
     );
   }

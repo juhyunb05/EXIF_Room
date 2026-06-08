@@ -5,13 +5,15 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../core/models/exif_data.dart';
+import 'loading_overlay.dart';
 
-class PosterCanvas extends StatelessWidget {
+class PosterCanvas extends StatefulWidget {
   final String imagePath;
   final Uint8List? webImageBytes;
   final ExifData exifData;
   final int imageRotation;
   final bool isPreview;
+  final Function(bool)? onImageLoaded;
 
   const PosterCanvas({
     super.key,
@@ -20,7 +22,40 @@ class PosterCanvas extends StatelessWidget {
     required this.exifData,
     this.imageRotation = 0,
     this.isPreview = false,
+    this.onImageLoaded,
   });
+
+  @override
+  State<PosterCanvas> createState() => _PosterCanvasState();
+}
+
+class _PosterCanvasState extends State<PosterCanvas> {
+  bool _isLoaded = false;
+
+  Widget _buildImageFrame(BuildContext context, Widget child, int? frame, bool wasSynchronouslyLoaded) {
+    final isImageReady = wasSynchronouslyLoaded || frame != null;
+    
+    if (_isLoaded != isImageReady) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _isLoaded != isImageReady) {
+          setState(() {
+            _isLoaded = isImageReady;
+          });
+          if (widget.onImageLoaded != null) {
+            widget.onImageLoaded!(_isLoaded);
+          }
+        }
+      });
+    }
+
+    if (!isImageReady) {
+      return SizedBox(
+        width: (widget.imageRotation % 2 != 0) ? 1600 : 2400,
+        height: (widget.imageRotation % 2 != 0) ? 2400 : 1600,
+      );
+    }
+    return child;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -36,26 +71,29 @@ class PosterCanvas extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 200),
             child: RotatedBox(
-              quarterTurns: imageRotation,
-              child: webImageBytes != null
+              quarterTurns: widget.imageRotation,
+              child: widget.webImageBytes != null
                   ? Image.memory(
-                      webImageBytes!,
-                      width: (imageRotation % 2 != 0) ? null : 2400,
-                      height: (imageRotation % 2 != 0) ? 2400 : null,
+                      widget.webImageBytes!,
+                      width: (widget.imageRotation % 2 != 0) ? null : 2400,
+                      height: (widget.imageRotation % 2 != 0) ? 2400 : null,
                       fit: BoxFit.contain,
+                      frameBuilder: _buildImageFrame,
                     )
                   : kIsWeb 
                       ? Image.network(
-                          imagePath,
-                          width: (imageRotation % 2 != 0) ? null : 2400,
-                          height: (imageRotation % 2 != 0) ? 2400 : null,
+                          widget.imagePath,
+                          width: (widget.imageRotation % 2 != 0) ? null : 2400,
+                          height: (widget.imageRotation % 2 != 0) ? 2400 : null,
                           fit: BoxFit.contain,
+                          frameBuilder: _buildImageFrame,
                         )
                       : Image.file(
-                          File(imagePath),
-                          width: (imageRotation % 2 != 0) ? null : 2400,
-                          height: (imageRotation % 2 != 0) ? 2400 : null,
+                          File(widget.imagePath),
+                          width: (widget.imageRotation % 2 != 0) ? null : 2400,
+                          height: (widget.imageRotation % 2 != 0) ? 2400 : null,
                           fit: BoxFit.contain,
+                          frameBuilder: _buildImageFrame,
                         ),
             ),
           ),
@@ -70,11 +108,26 @@ class PosterCanvas extends StatelessWidget {
     );
 
     // If it's for the UI preview, scale it down using FittedBox
-    if (isPreview) {
-      return FittedBox(
-        fit: BoxFit.contain,
+    if (widget.isPreview) {
+      return Stack(
         alignment: Alignment.center,
-        child: canvas,
+        children: [
+          Opacity(
+            opacity: _isLoaded ? 1.0 : 0.0,
+            child: FittedBox(
+              fit: BoxFit.contain,
+              alignment: Alignment.center,
+              child: canvas,
+            ),
+          ),
+          if (!_isLoaded)
+            const Positioned.fill(
+              child: LoadingOverlay(
+                isLoading: true,
+                backgroundColor: Colors.transparent,
+              ),
+            ),
+        ],
       );
     }
 
@@ -92,9 +145,9 @@ class PosterCanvas extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (exifData.cameraMake != null && exifData.cameraMake!.isNotEmpty)
+              if (widget.exifData.cameraMake != null && widget.exifData.cameraMake!.isNotEmpty)
                 Text(
-                  exifData.cameraMake!.toUpperCase(),
+                  widget.exifData.cameraMake!.toUpperCase(),
                   style: TextStyle(fontFamily: 'Pretendard', 
                     color: const Color(0xFF6E6E6E),
                     fontSize: 56,
@@ -102,10 +155,10 @@ class PosterCanvas extends StatelessWidget {
                     height: 1.0,
                   ),
                 ),
-              if (exifData.cameraMake != null && exifData.cameraMake!.isNotEmpty)
+              if (widget.exifData.cameraMake != null && widget.exifData.cameraMake!.isNotEmpty)
                 const SizedBox(height: 24),
               Text(
-                exifData.cameraName ?? "UNKNOWN CAMERA",
+                widget.exifData.cameraName ?? "UNKNOWN CAMERA",
                 style: TextStyle(fontFamily: 'Pretendard', 
                   color: const Color(0xFF000000),
                   fontSize: 100,
@@ -115,9 +168,9 @@ class PosterCanvas extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 56),
-              if (exifData.location != null && exifData.location!.isNotEmpty)
+              if (widget.exifData.location != null && widget.exifData.location!.isNotEmpty)
                 Text(
-                  exifData.location!.toUpperCase(),
+                  widget.exifData.location!.toUpperCase(),
                   style: TextStyle(fontFamily: 'Pretendard', 
                     color: const Color(0xFF000000),
                     fontSize: 72,
@@ -125,11 +178,11 @@ class PosterCanvas extends StatelessWidget {
                     height: 1.0,
                   ),
                 ),
-              if (exifData.location != null && exifData.location!.isNotEmpty)
+              if (widget.exifData.location != null && widget.exifData.location!.isNotEmpty)
                 const SizedBox(height: 16),
               Text(
-                exifData.shotDate != null
-                    ? DateFormat("M/d/yyyy HH:mm").format(exifData.shotDate!)
+                widget.exifData.shotDate != null
+                    ? DateFormat("M/d/yyyy HH:mm").format(widget.exifData.shotDate!)
                     : "--/--/---- --:--",
                 style: TextStyle(fontFamily: 'Pretendard', 
                   color: const Color(0xFF525252),
@@ -154,7 +207,7 @@ class PosterCanvas extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      "ISO ${exifData.iso ?? '--'}",
+                      "ISO ${widget.exifData.iso ?? '--'}",
                       style: TextStyle(fontFamily: 'Pretendard', 
                         color: const Color(0xFF525252),
                         fontSize: 80,
@@ -164,7 +217,7 @@ class PosterCanvas extends StatelessWidget {
                     ),
                     const SizedBox(height: 80),
                     Text(
-                      _formatShutterSpeed(exifData.shutterSpeed),
+                      _formatShutterSpeed(widget.exifData.shutterSpeed),
                       style: TextStyle(fontFamily: 'Pretendard', 
                         color: const Color(0xFF525252),
                         fontSize: 80,
@@ -195,7 +248,7 @@ class PosterCanvas extends StatelessWidget {
                             ),
                           ),
                           TextSpan(
-                            text: "/${exifData.aperture ?? '--'}",
+                            text: "/${widget.exifData.aperture ?? '--'}",
                             style: TextStyle(fontFamily: 'Pretendard', 
                               color: const Color(0xFF525252),
                               fontSize: 80,
@@ -208,7 +261,7 @@ class PosterCanvas extends StatelessWidget {
                     ),
                     const SizedBox(height: 80),
                     Text(
-                      _formatFocalLength(exifData.focalLength),
+                      _formatFocalLength(widget.exifData.focalLength),
                       style: TextStyle(fontFamily: 'Pretendard', 
                         color: const Color(0xFF525252),
                         fontSize: 80,

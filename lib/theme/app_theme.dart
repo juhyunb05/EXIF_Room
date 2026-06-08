@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
-  static const Color primaryColor = Color(0xFFFFFFFF);
+  static const Color uiWhite = Color(0xFFF0F4F8);
+  static const Color primaryColor = uiWhite;
   static const Color accentColor = Color(0xFF6366F1);
   static const Color backgroundColor = Color(0xFF121212);
   static const Color canvasColor = Color(0xFF1E1E1E);
@@ -54,7 +55,7 @@ class AppTheme {
         elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(20),
-          side: BorderSide(color: Colors.white.withAlpha(20)),
+          side: BorderSide(color: uiWhite.withAlpha(20)),
         ),
         color: canvasColor,
       ),
