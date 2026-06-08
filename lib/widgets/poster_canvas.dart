@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:flutter/foundation.dart';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
 
 import '../core/models/exif_data.dart';
@@ -31,6 +32,19 @@ class PosterCanvas extends StatefulWidget {
 
 class _PosterCanvasState extends State<PosterCanvas> {
   bool _isLoaded = false;
+
+  String? _getBrandLogoPath(String? make) {
+    if (make == null) return null;
+    final cleanMake = make.trim().toLowerCase();
+    if (cleanMake.contains('sony')) return 'assets/images/BrandLogos/sony-logo.svg';
+    if (cleanMake.contains('canon')) return 'assets/images/BrandLogos/canon-logo.svg';
+    if (cleanMake.contains('nikon')) return 'assets/images/BrandLogos/nikon-logo.svg';
+    if (cleanMake.contains('apple')) return 'assets/images/BrandLogos/apple-logo.svg';
+    if (cleanMake.contains('samsung')) return 'assets/images/BrandLogos/samsung-logo.svg';
+    if (cleanMake.contains('ricoh')) return 'assets/images/BrandLogos/ricoh-logo.svg';
+    if (cleanMake.contains('fujifilm') || cleanMake.contains('fuji')) return 'assets/images/BrandLogos/fujifilm-logo.svg';
+    return null;
+  }
 
   Widget _buildImageFrame(BuildContext context, Widget child, int? frame, bool wasSynchronouslyLoaded) {
     final isImageReady = wasSynchronouslyLoaded || frame != null;
@@ -136,6 +150,7 @@ class _PosterCanvasState extends State<PosterCanvas> {
   }
 
   Widget _buildInfoLayout() {
+    final logoPath = _getBrandLogoPath(widget.exifData.cameraMake);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -145,23 +160,34 @@ class _PosterCanvasState extends State<PosterCanvas> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (widget.exifData.cameraMake != null && widget.exifData.cameraMake!.isNotEmpty)
-                Text(
-                  widget.exifData.cameraMake!.toUpperCase(),
-                  style: TextStyle(fontFamily: 'Pretendard', 
-                    color: const Color(0xFF6E6E6E),
-                    fontSize: 56,
-                    fontWeight: FontWeight.w400,
-                    height: 1.0,
-                  ),
-                ),
-              if (widget.exifData.cameraMake != null && widget.exifData.cameraMake!.isNotEmpty)
+              if (widget.exifData.cameraMake != null && widget.exifData.cameraMake!.isNotEmpty) ...[
+                logoPath != null
+                    ? SvgPicture.asset(
+                        logoPath,
+                        height: 80,
+                        alignment: Alignment.centerLeft,
+                        fit: BoxFit.contain,
+                        colorFilter: const ColorFilter.mode(
+                          Color(0xFF878787),
+                          BlendMode.srcIn,
+                        ),
+                      )
+                    : Text(
+                        widget.exifData.cameraMake!.toUpperCase(),
+                        style: TextStyle(fontFamily: 'Pretendard', 
+                          color: const Color(0xFF6E6E6E),
+                          fontSize: 80,
+                          fontWeight: FontWeight.w400,
+                          height: 1.0,
+                        ),
+                      ),
                 const SizedBox(height: 24),
+              ],
               Text(
                 widget.exifData.cameraName ?? "UNKNOWN CAMERA",
                 style: TextStyle(fontFamily: 'Pretendard', 
                   color: const Color(0xFF000000),
-                  fontSize: 100,
+                  fontSize: 80,
                   fontWeight: FontWeight.w700, // Bold
                   letterSpacing: -1,
                   height: 1.0,

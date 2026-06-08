@@ -862,16 +862,22 @@ class _ProjectContextMenuState extends State<_ProjectContextMenu> with SingleTic
                         HoverInteraction(
                           child: IconButton(
                             icon: const Icon(Icons.arrow_downward_rounded, color: Colors.black87),
-                            onPressed: () {
+                            onPressed: () async {
                               Navigator.pop(context);
                               final path = widget.project.exportedImagePath ?? widget.project.originalImagePath;
+                              
+                              Uint8List? webBytes = widget.project.webExportedImageBytes;
+                              if (kIsWeb && webBytes == null && widget.project.id != null) {
+                                webBytes = await DatabaseService().getOriginalImageBytes(widget.project.id!);
+                              }
+                              
                               final ext = p.extension(path).isEmpty ? 'png' : p.extension(path).replaceAll('.', '');
                               final customName = FileManagerService.generateFileName(widget.project.exif, ext);
                               FileManagerService.shareOrSaveImage(
                                 path,
                                 !kIsWeb && Platform.isWindows,
                                 saveToDevice: true,
-                                webBytes: widget.project.webExportedImageBytes,
+                                webBytes: webBytes,
                                 customFileName: customName,
                               );
                             },

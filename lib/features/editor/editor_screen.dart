@@ -110,9 +110,9 @@ class _EditorScreenState extends State<EditorScreen> {
       int nameLines = (nameLength / 16).ceil();
       if (nameLines < 1) nameLines = 1;
       
-      double leftHeight = 56.0 + 72.0 + (100.0 * nameLines); // Name, spacer, date
+      double leftHeight = 56.0 + 72.0 + (80.0 * nameLines); // Name, spacer, date
       if (_currentExif.cameraMake != null && _currentExif.cameraMake!.isNotEmpty) {
-        leftHeight += 80.0; // 56 text + 24 spacer
+        leftHeight += 104.0; // 80 text + 24 spacer
       }
       if (_currentExif.location != null && _currentExif.location!.isNotEmpty) {
         leftHeight += 88.0; // 72 text + 16 spacer
