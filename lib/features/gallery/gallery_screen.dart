@@ -140,12 +140,26 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
       final internalPath = kIsWeb ? currentPath : await FileManagerService.copyToInternalStorage(currentPath);
       final exif = await ExifService.extractExif(selectedPath);
+      Uint8List? webBytes;
+      if (kIsWeb) {
+        try {
+          final xfile = XFile(currentPath);
+          webBytes = await xfile.readAsBytes();
+        } catch (e) {
+          debugPrint('Failed to read web image bytes: $e');
+        }
+      }
+
       if (mounted) {
         final result = await Navigator.push(
           context,
           PageRouteBuilder(
             pageBuilder: (context, animation, secondaryAnimation) =>
-                EditorScreen(imagePath: internalPath, initialExif: exif),
+                EditorScreen(
+                  imagePath: internalPath,
+                  initialExif: exif,
+                  webImageBytes: webBytes,
+                ),
             transitionsBuilder:
                 (context, animation, secondaryAnimation, child) {
                   return FadeTransition(opacity: animation, child: child);

@@ -31,7 +31,10 @@ class _ImageViewerDialogState extends State<ImageViewerDialog> {
         final bytes = await DatabaseService().getOriginalImageBytes(widget.project.id!);
         if (bytes != null) return bytes;
       }
-      return widget.project.webExportedImageBytes;
+      if (widget.project.webExportedImageBytes != null) {
+        return widget.project.webExportedImageBytes;
+      }
+      return widget.project.thumbnailBytes;
     } else {
       final path = widget.project.exportedImagePath ?? widget.project.originalImagePath;
       final file = File(path);

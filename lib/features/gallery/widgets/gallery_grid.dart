@@ -55,28 +55,7 @@ class GalleryGrid extends StatelessWidget {
                           ),
                         ],
                       ),
-                      child: project.thumbnailBytes != null
-                          ? Image.memory(
-                              project.thumbnailBytes!,
-                              fit: BoxFit.cover,
-                            )
-                          : (kIsWeb
-                              ? (project.webExportedImageBytes != null
-                                  ? Image.memory(
-                                      project.webExportedImageBytes!,
-                                      cacheWidth: 300,
-                                    )
-                                  : Image.network(
-                                      project.originalImagePath,
-                                      cacheWidth: 300,
-                                    ))
-                              : Image.file(
-                                  File(
-                                    project.exportedImagePath ??
-                                        project.originalImagePath,
-                                  ),
-                                  cacheWidth: 300,
-                                )),
+                      child: _buildProjectImage(project),
                     ),
                   ),
                 ),
@@ -84,6 +63,69 @@ class GalleryGrid extends StatelessWidget {
             },
           );
         },
+      ),
+    );
+  }
+
+  Widget _buildProjectImage(PosterProject project) {
+    if (project.thumbnailBytes != null) {
+      return Image.memory(
+        project.thumbnailBytes!,
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
+      );
+    }
+
+    if (kIsWeb) {
+      if (project.webExportedImageBytes != null) {
+        return Image.memory(
+          project.webExportedImageBytes!,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
+        );
+      }
+
+      final path = project.originalImagePath;
+      if (path.startsWith('http://') || path.startsWith('https://')) {
+        return Image.network(
+          path,
+          fit: BoxFit.cover,
+          errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
+        );
+      }
+
+      return _buildPlaceholder();
+    }
+
+    final path = project.exportedImagePath ?? project.originalImagePath;
+    final file = File(path);
+    if (file.existsSync()) {
+      return Image.file(
+        file,
+        fit: BoxFit.cover,
+        cacheWidth: 300,
+        errorBuilder: (context, error, stackTrace) => _buildPlaceholder(),
+      );
+    }
+    return _buildPlaceholder();
+  }
+
+  Widget _buildPlaceholder() {
+    return Container(
+      height: 200,
+      color: Colors.grey.shade900,
+      child: const Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.broken_image_rounded, color: Colors.grey, size: 36),
+            SizedBox(height: 8),
+            Text(
+              '이미지를 불러올 수 없음',
+              style: TextStyle(color: Colors.grey, fontSize: 12),
+            ),
+          ],
+        ),
       ),
     );
   }

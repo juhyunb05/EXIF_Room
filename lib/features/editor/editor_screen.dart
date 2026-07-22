@@ -186,13 +186,13 @@ class _EditorScreenState extends State<EditorScreen> {
         exif: _currentExif,
         createdAt: DateTime.now(),
         exported: true,
-        webExportedImageBytes: null,
+        webExportedImageBytes: kIsWeb ? imageBytes : null,
         thumbnailBytes: thumbnailBytes,
       );
 
       await DatabaseService().saveProject(
         project,
-        originalImageBytes: kIsWeb ? imageBytes : null,
+        originalImageBytes: kIsWeb ? fileBytes : null,
       );
 
       if (mounted) {
