@@ -125,7 +125,12 @@
     }
   </style>
 </head>
-<body>
+<body oncontextmenu="return false;">
+  <script>
+    window.addEventListener('contextmenu', function(e) {
+      e.preventDefault();
+    }, false);
+  </script>
   <div id="loading-indicator">
     <img src="assets/assets/images/logoFullSvg.svg" alt="EXIF Room Logo" class="logo" />
     <div class="loading-text" id="loading-text">로딩중</div>
