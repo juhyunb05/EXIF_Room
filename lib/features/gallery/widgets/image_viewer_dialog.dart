@@ -27,12 +27,12 @@ class _ImageViewerDialogState extends State<ImageViewerDialog> {
     await Future.delayed(const Duration(milliseconds: 400));
 
     if (kIsWeb) {
+      if (widget.project.webExportedImageBytes != null) {
+        return widget.project.webExportedImageBytes;
+      }
       if (widget.project.id != null) {
         final bytes = await DatabaseService().getOriginalImageBytes(widget.project.id!);
         if (bytes != null) return bytes;
-      }
-      if (widget.project.webExportedImageBytes != null) {
-        return widget.project.webExportedImageBytes;
       }
       return widget.project.thumbnailBytes;
     } else {
