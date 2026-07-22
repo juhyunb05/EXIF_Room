@@ -177,11 +177,14 @@
         const jpegBlob = await heic2any({ blob: blob, toType: "image/jpeg", quality: 1.0 });
         const finalBlob = Array.isArray(jpegBlob) ? jpegBlob[0] : jpegBlob;
         return URL.createObjectURL(finalBlob);
-      } catch (e) {
-        console.error('HEIC conversion error: ', e);
-        throw e;
       }
     };
+
+    if (navigator.storage && navigator.storage.persist) {
+      navigator.storage.persist().then(function(granted) {
+        console.log('Persistent storage granted:', granted);
+      });
+    }
   </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
