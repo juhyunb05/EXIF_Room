@@ -32,6 +32,9 @@ class PosterProject extends HiveObject {
   @HiveField(8)
   int? categoryId;
 
+  @HiveField(9)
+  List<int>? categoryIds;
+
   PosterProject({
     this.id,
     required this.originalImagePath,
@@ -42,5 +45,21 @@ class PosterProject extends HiveObject {
     this.webExportedImageBytes,
     this.thumbnailBytes,
     this.categoryId,
+    this.categoryIds,
   });
+
+  List<int> get categoryIdList {
+    if (categoryIds != null && categoryIds!.isNotEmpty) {
+      return categoryIds!;
+    }
+    if (categoryId != null) {
+      return [categoryId!];
+    }
+    return [];
+  }
+
+  void setCategoryIds(List<int> ids) {
+    categoryIds = ids;
+    categoryId = ids.isNotEmpty ? ids.first : null;
+  }
 }

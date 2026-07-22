@@ -1,13 +1,12 @@
 import 'dart:io';
 import 'package:flutter/foundation.dart';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
-
 import 'dart:math' as math;
 import '../core/models/exif_data.dart';
 import '../core/models/edit_data.dart';
+import '../core/utils/poster_layout_config.dart';
 import 'loading_overlay.dart';
 
 class PosterCanvas extends StatefulWidget {
@@ -26,7 +25,7 @@ class PosterCanvas extends StatefulWidget {
     required this.exifData,
     this.editData,
     this.imageRotation = 0,
-    this.isPreview = false,
+    this.isPreview = true,
     this.onImageLoaded,
   });
 
@@ -47,7 +46,8 @@ class _PosterCanvasState extends State<PosterCanvas> {
   @override
   void didUpdateWidget(PosterCanvas oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.imagePath != widget.imagePath || oldWidget.webImageBytes != widget.webImageBytes) {
+    if (oldWidget.imagePath != widget.imagePath ||
+        oldWidget.webImageBytes != widget.webImageBytes) {
       _resolveImageAspectRatio();
     }
   }
@@ -65,7 +65,7 @@ class _PosterCanvasState extends State<PosterCanvas> {
   void _resolveImageAspectRatio() {
     final provider = _getImageProvider();
     provider.resolve(const ImageConfiguration()).addListener(
-      ImageStreamListener((ImageInfo info, bool _) {
+          ImageStreamListener((ImageInfo info, bool _) {
         if (mounted) {
           final w = info.image.width.toDouble();
           final h = info.image.height.toDouble();
@@ -91,13 +91,20 @@ class _PosterCanvasState extends State<PosterCanvas> {
     if (cleanMake.contains('apple')) return 'assets/images/BrandLogos/apple-logo.svg';
     if (cleanMake.contains('samsung')) return 'assets/images/BrandLogos/samsung-logo.svg';
     if (cleanMake.contains('ricoh')) return 'assets/images/BrandLogos/ricoh-logo.svg';
-    if (cleanMake.contains('fujifilm') || cleanMake.contains('fuji')) return 'assets/images/BrandLogos/fujifilm-logo.svg';
+    if (cleanMake.contains('fujifilm') || cleanMake.contains('fuji')) {
+      return 'assets/images/BrandLogos/fujifilm-logo.svg';
+    }
     return null;
   }
 
-  Widget _buildImageFrame(BuildContext context, Widget child, int? frame, bool wasSynchronouslyLoaded) {
+  Widget _buildImageFrame(
+    BuildContext context,
+    Widget child,
+    int? frame,
+    bool wasSynchronouslyLoaded,
+  ) {
     final isImageReady = wasSynchronouslyLoaded || frame != null;
-    
+
     if (_isLoaded != isImageReady) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted && _isLoaded != isImageReady) {
@@ -113,8 +120,12 @@ class _PosterCanvasState extends State<PosterCanvas> {
 
     if (!isImageReady) {
       return SizedBox(
-        width: (widget.imageRotation % 2 != 0) ? 1600 : 2400,
-        height: (widget.imageRotation % 2 != 0) ? 2400 : 1600,
+        width: (widget.imageRotation % 2 != 0)
+            ? PosterLayoutConfig.imageAreaWidthPortrait
+            : PosterLayoutConfig.imageAreaWidthLandscape,
+        height: (widget.imageRotation % 2 != 0)
+            ? PosterLayoutConfig.imageAreaWidthLandscape
+            : PosterLayoutConfig.imageAreaWidthPortrait,
       );
     }
     return child;
@@ -123,7 +134,10 @@ class _PosterCanvasState extends State<PosterCanvas> {
   Widget _buildCroppedPhotoWidget(ImageProvider provider) {
     final edit = widget.editData;
     final imgAspect = _imgAspectRatio ?? (3.0 / 2.0);
-    final targetWidth = (widget.imageRotation % 2 != 0) ? 1600.0 : 2400.0;
+    final targetWidth =
+        (widget.imageRotation % 2 != 0)
+            ? PosterLayoutConfig.imageAreaWidthPortrait
+            : PosterLayoutConfig.imageAreaWidthLandscape;
 
     if (edit == null || edit.isIdentity) {
       final frameHeight = targetWidth / imgAspect;
@@ -151,7 +165,6 @@ class _PosterCanvasState extends State<PosterCanvas> {
     final cropH = cropRect.height;
 
     final cropAspect = imgAspect * (cropW / cropH);
-
     final frameWidth = targetWidth;
     final frameHeight = targetWidth / cropAspect;
 
@@ -228,33 +241,33 @@ class _PosterCanvasState extends State<PosterCanvas> {
   Widget build(BuildContext context) {
     final provider = _getImageProvider();
 
-    // 2800 Fixed width architecture
     final canvas = Container(
-      width: 2800,
+      width: PosterLayoutConfig.exportWidth,
       color: Colors.white,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const SizedBox(height: 200),
+          const SizedBox(height: PosterLayoutConfig.topPadding),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 200),
+            padding:
+                const EdgeInsets.symmetric(horizontal: PosterLayoutConfig.horizontalPadding),
             child: RotatedBox(
               quarterTurns: widget.imageRotation,
               child: _buildCroppedPhotoWidget(provider),
             ),
           ),
-          const SizedBox(height: 320),
+          const SizedBox(height: PosterLayoutConfig.imageToInfoPadding),
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 200),
+            padding:
+                const EdgeInsets.symmetric(horizontal: PosterLayoutConfig.horizontalPadding),
             child: _buildInfoLayout(),
           ),
-          const SizedBox(height: 320),
+          const SizedBox(height: PosterLayoutConfig.bottomPadding),
         ],
       ),
     );
 
-    // If it's for the UI preview, scale it down using FittedBox
     if (widget.isPreview) {
       return Stack(
         alignment: Alignment.center,
@@ -278,7 +291,6 @@ class _PosterCanvasState extends State<PosterCanvas> {
       );
     }
 
-    // For export, return the raw 2400px wide widget
     return canvas;
   }
 
@@ -287,17 +299,17 @@ class _PosterCanvasState extends State<PosterCanvas> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // LEFT HALF: Camera, Location & Date
         Expanded(
           flex: 12,
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              if (widget.exifData.cameraMake != null && widget.exifData.cameraMake!.isNotEmpty) ...[
+              if (widget.exifData.cameraMake != null &&
+                  widget.exifData.cameraMake!.isNotEmpty) ...[
                 logoPath != null
                     ? SvgPicture.asset(
                         logoPath,
-                        height: 80,
+                        height: PosterLayoutConfig.leftBrandHeight,
                         alignment: Alignment.centerLeft,
                         fit: BoxFit.contain,
                         colorFilter: const ColorFilter.mode(
@@ -307,45 +319,52 @@ class _PosterCanvasState extends State<PosterCanvas> {
                       )
                     : Text(
                         widget.exifData.cameraMake!.toUpperCase(),
-                        style: TextStyle(fontFamily: 'Pretendard', 
+                        style: TextStyle(
+                          fontFamily: 'Pretendard',
                           color: const Color(0xFF6E6E6E),
-                          fontSize: 80,
+                          fontSize: PosterLayoutConfig.fontSizeBrand,
                           fontWeight: FontWeight.w400,
                           height: 1.0,
                         ),
                       ),
-                const SizedBox(height: 24),
+                const SizedBox(height: PosterLayoutConfig.leftBrandSpacer),
               ],
               Text(
                 widget.exifData.cameraName ?? "UNKNOWN CAMERA",
-                style: TextStyle(fontFamily: 'Pretendard', 
+                style: TextStyle(
+                  fontFamily: 'Pretendard',
                   color: const Color(0xFF000000),
-                  fontSize: 80,
-                  fontWeight: FontWeight.w700, // Bold
+                  fontSize: PosterLayoutConfig.fontSizeModel,
+                  fontWeight: FontWeight.w700,
                   letterSpacing: -1,
                   height: 1.0,
                 ),
               ),
-              const SizedBox(height: 56),
-              if (widget.exifData.location != null && widget.exifData.location!.isNotEmpty)
+              const SizedBox(height: PosterLayoutConfig.modelToSpacer),
+              if (widget.exifData.location != null &&
+                  widget.exifData.location!.isNotEmpty)
                 Text(
                   widget.exifData.location!.toUpperCase(),
-                  style: TextStyle(fontFamily: 'Pretendard', 
+                  style: TextStyle(
+                    fontFamily: 'Pretendard',
                     color: const Color(0xFF000000),
-                    fontSize: 72,
-                    fontWeight: FontWeight.w600, // SemiBold
+                    fontSize: PosterLayoutConfig.fontSizeLocation,
+                    fontWeight: FontWeight.w600,
                     height: 1.0,
                   ),
                 ),
-              if (widget.exifData.location != null && widget.exifData.location!.isNotEmpty)
-                const SizedBox(height: 16),
+              if (widget.exifData.location != null &&
+                  widget.exifData.location!.isNotEmpty)
+                const SizedBox(height: PosterLayoutConfig.locationSpacer),
               Text(
                 widget.exifData.shotDate != null
-                    ? DateFormat("M/d/yyyy HH:mm").format(widget.exifData.shotDate!)
+                    ? DateFormat("M/d/yyyy HH:mm")
+                        .format(widget.exifData.shotDate!)
                     : "--/--/---- --:--",
-                style: TextStyle(fontFamily: 'Pretendard', 
+                style: TextStyle(
+                  fontFamily: 'Pretendard',
                   color: const Color(0xFF525252),
-                  fontSize: 72,
+                  fontSize: PosterLayoutConfig.fontSizeDate,
                   fontWeight: FontWeight.w400,
                   height: 1.0,
                 ),
@@ -353,13 +372,11 @@ class _PosterCanvasState extends State<PosterCanvas> {
             ],
           ),
         ),
-        // RIGHT HALF: ISO, Shutter, F-Stop, Focal
         Expanded(
           flex: 10,
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              // COLUMN 1: ISO & Shutter Speed
               Expanded(
                 flex: 1,
                 child: Column(
@@ -367,9 +384,10 @@ class _PosterCanvasState extends State<PosterCanvas> {
                   children: [
                     Text(
                       "ISO ${widget.exifData.iso ?? '--'}",
-                      style: TextStyle(fontFamily: 'Pretendard', 
+                      style: TextStyle(
+                        fontFamily: 'Pretendard',
                         color: const Color(0xFF525252),
-                        fontSize: 80,
+                        fontSize: PosterLayoutConfig.fontSizeSpec,
                         fontWeight: FontWeight.w400,
                         height: 1.0,
                       ),
@@ -377,9 +395,10 @@ class _PosterCanvasState extends State<PosterCanvas> {
                     const SizedBox(height: 80),
                     Text(
                       _formatShutterSpeed(widget.exifData.shutterSpeed),
-                      style: TextStyle(fontFamily: 'Pretendard', 
+                      style: TextStyle(
+                        fontFamily: 'Pretendard',
                         color: const Color(0xFF525252),
-                        fontSize: 80,
+                        fontSize: PosterLayoutConfig.fontSizeSpec,
                         fontWeight: FontWeight.w400,
                         height: 1.0,
                       ),
@@ -387,7 +406,6 @@ class _PosterCanvasState extends State<PosterCanvas> {
                   ],
                 ),
               ),
-              // COLUMN 2: F-Stop & Focal Length
               Expanded(
                 flex: 1,
                 child: Column(
@@ -398,9 +416,10 @@ class _PosterCanvasState extends State<PosterCanvas> {
                         children: [
                           TextSpan(
                             text: "f",
-                            style: TextStyle(fontFamily: 'Pretendard', 
+                            style: TextStyle(
+                              fontFamily: 'Pretendard',
                               color: const Color(0xFF525252),
-                              fontSize: 80,
+                              fontSize: PosterLayoutConfig.fontSizeSpec,
                               fontWeight: FontWeight.w400,
                               fontStyle: FontStyle.italic,
                               height: 1.0,
@@ -408,9 +427,10 @@ class _PosterCanvasState extends State<PosterCanvas> {
                           ),
                           TextSpan(
                             text: "/${widget.exifData.aperture ?? '--'}",
-                            style: TextStyle(fontFamily: 'Pretendard', 
+                            style: TextStyle(
+                              fontFamily: 'Pretendard',
                               color: const Color(0xFF525252),
-                              fontSize: 80,
+                              fontSize: PosterLayoutConfig.fontSizeSpec,
                               fontWeight: FontWeight.w400,
                               height: 1.0,
                             ),
@@ -421,9 +441,10 @@ class _PosterCanvasState extends State<PosterCanvas> {
                     const SizedBox(height: 80),
                     Text(
                       _formatFocalLength(widget.exifData.focalLength),
-                      style: TextStyle(fontFamily: 'Pretendard', 
+                      style: TextStyle(
+                        fontFamily: 'Pretendard',
                         color: const Color(0xFF525252),
-                        fontSize: 80,
+                        fontSize: PosterLayoutConfig.fontSizeSpec,
                         fontWeight: FontWeight.w400,
                         height: 1.0,
                       ),

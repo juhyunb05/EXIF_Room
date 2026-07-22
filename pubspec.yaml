@@ -26,6 +26,7 @@ dependencies:
   heic_to_png_jpg: ^0.1.2
   http: ^1.6.0
   image: ^4.9.1
+  provider: ^6.1.2
   hive: ^2.2.3
   hive_flutter: ^1.1.0
   url_launcher: ^6.3.2

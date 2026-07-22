@@ -44,13 +44,18 @@ class _ImageCropDialogState extends State<ImageCropDialog> {
   CropRatioType _selectedPreset = CropRatioType.custom;
   bool _isPortrait = false;
 
-  // Normalized crop rect in [0..1] relative to original image size
-  Rect _cropRect = const Rect.fromLTWH(0, 0, 1, 1);
+  // Normalized crop edges in [0..1] relative to original image size
+  // Stored as raw doubles to avoid Rect LTWH↔LTRB conversion drift.
+  double _cropL = 0.0;
+  double _cropT = 0.0;
+  double _cropR = 1.0;
+  double _cropB = 1.0;
 
   // Active drag state
   _DragHandleType? _activeHandle;
   Offset? _dragStartOffset;
-  Rect? _initialCropRect;
+  // Snapshot of crop edges at drag start
+  double _initL = 0.0, _initT = 0.0, _initR = 1.0, _initB = 1.0;
 
   @override
   void initState() {
@@ -109,22 +114,16 @@ class _ImageCropDialogState extends State<ImageCropDialog> {
     setState(() {
       _isPortrait = !_isPortrait;
       if (_selectedPreset == CropRatioType.custom) {
-        // For custom ratio, invert the current cropRect ratio around center
-        final currentW = _cropRect.width;
-        final currentH = _cropRect.height;
+        final currentW = _cropR - _cropL;
+        final currentH = _cropB - _cropT;
         final imgW = _decodedImage!.width.toDouble();
         final imgH = _decodedImage!.height.toDouble();
 
-        // Calculate aspect ratio in absolute pixels
         final absW = currentW * imgW;
         final absH = currentH * imgH;
 
-        // Invert dimensions
-        final targetAbsW = absH;
-        final targetAbsH = absW;
-
-        double normW = targetAbsW / imgW;
-        double normH = targetAbsH / imgH;
+        double normW = absH / imgW;
+        double normH = absW / imgH;
 
         if (normW > 1.0 || normH > 1.0) {
           final scale = (normW > normH) ? (1.0 / normW) : (1.0 / normH);
@@ -132,8 +131,8 @@ class _ImageCropDialogState extends State<ImageCropDialog> {
           normH *= scale;
         }
 
-        final cx = _cropRect.center.dx;
-        final cy = _cropRect.center.dy;
+        final cx = (_cropL + _cropR) / 2.0;
+        final cy = (_cropT + _cropB) / 2.0;
 
         double left = cx - normW / 2;
         double top = cy - normH / 2;
@@ -143,7 +142,8 @@ class _ImageCropDialogState extends State<ImageCropDialog> {
         if (left + normW > 1.0) left = 1.0 - normW;
         if (top + normH > 1.0) top = 1.0 - normH;
 
-        _cropRect = Rect.fromLTWH(left, top, normW, normH);
+        _cropL = left; _cropT = top;
+        _cropR = left + normW; _cropB = top + normH;
       } else {
         _updateCropRectForTargetRatio();
       }
@@ -161,50 +161,44 @@ class _ImageCropDialogState extends State<ImageCropDialog> {
     double normW, normH;
 
     if (targetRatio > imgRatio) {
-      // Crop height is constrained
       normW = 1.0;
       normH = (imgW / targetRatio) / imgH;
     } else {
-      // Crop width is constrained
       normH = 1.0;
       normW = (imgH * targetRatio) / imgW;
     }
 
-    final cx = _cropRect.center.dx.clamp(normW / 2, 1.0 - normW / 2);
-    final cy = _cropRect.center.dy.clamp(normH / 2, 1.0 - normH / 2);
+    final cx = ((_cropL + _cropR) / 2.0).clamp(normW / 2, 1.0 - normW / 2);
+    final cy = ((_cropT + _cropB) / 2.0).clamp(normH / 2, 1.0 - normH / 2);
 
-    _cropRect = Rect.fromLTWH(
-      cx - normW / 2,
-      cy - normH / 2,
-      normW,
-      normH,
-    );
+    _cropL = cx - normW / 2;
+    _cropT = cy - normH / 2;
+    _cropR = _cropL + normW;
+    _cropB = _cropT + normH;
   }
 
   void _resetCrop() {
     setState(() {
       _selectedPreset = CropRatioType.custom;
-      _cropRect = const Rect.fromLTWH(0, 0, 1, 1);
+      _cropL = 0.0; _cropT = 0.0; _cropR = 1.0; _cropB = 1.0;
     });
   }
 
-  Future<Uint8List?> _cropImageFast(Rect normCropRect) async {
+  Future<Uint8List?> _cropImageFast() async {
     if (_decodedImage == null) return null;
 
     final originalImage = _decodedImage!;
     final double origW = originalImage.width.toDouble();
     final double origH = originalImage.height.toDouble();
 
-    // Calculate source bounds in pixels
-    final double srcX = (normCropRect.left * origW).clamp(0.0, origW - 1.0);
-    final double srcY = (normCropRect.top * origH).clamp(0.0, origH - 1.0);
-    final double srcW = (normCropRect.width * origW).clamp(1.0, origW - srcX);
-    final double srcH = (normCropRect.height * origH).clamp(1.0, origH - srcY);
+    final double srcX = (_cropL * origW).clamp(0.0, origW - 1.0);
+    final double srcY = (_cropT * origH).clamp(0.0, origH - 1.0);
+    final double srcW = ((_cropR - _cropL) * origW).clamp(1.0, origW - srcX);
+    final double srcH = ((_cropB - _cropT) * origH).clamp(1.0, origH - srcY);
 
     final int targetW = srcW.round().clamp(1, origW.toInt());
     final int targetH = srcH.round().clamp(1, origH.toInt());
 
-    // Native Skia GPU Canvas crop
     final recorder = ui.PictureRecorder();
     final canvas = Canvas(recorder);
 
@@ -229,17 +223,15 @@ class _ImageCropDialogState extends State<ImageCropDialog> {
     setState(() => _isProcessingCrop = true);
 
     try {
-      // 1. Ultra-fast native Skia GPU engine crop (instantly done in <100ms)
-      Uint8List? croppedBytes = await _cropImageFast(_cropRect);
+      Uint8List? croppedBytes = await _cropImageFast();
 
-      // 2. Fallback to CPU task if native GPU crop returned null
       if (croppedBytes == null) {
         final res = await compute(_cropImageTask, {
           'bytes': widget.imageBytes,
-          'left': _cropRect.left,
-          'top': _cropRect.top,
-          'width': _cropRect.width,
-          'height': _cropRect.height,
+          'left': _cropL,
+          'top': _cropT,
+          'width': _cropR - _cropL,
+          'height': _cropB - _cropT,
         });
         croppedBytes = res?['bytes'] as Uint8List?;
       }
@@ -411,7 +403,6 @@ class _ImageCropDialogState extends State<ImageCropDialog> {
     final canvasW = constraints.maxWidth;
     final canvasH = constraints.maxHeight;
 
-    // Calculate fitted image rect inside canvas
     final scale = mathFitScale(imgW, imgH, canvasW, canvasH);
     final displayedW = imgW * scale;
     final displayedH = imgH * scale;
@@ -420,21 +411,20 @@ class _ImageCropDialogState extends State<ImageCropDialog> {
 
     final imageDisplayRect = Rect.fromLTWH(offsetX, offsetY, displayedW, displayedH);
 
-    // Convert normalized _cropRect to pixel rect in canvas
-    final cropPixelRect = Rect.fromLTWH(
-      imageDisplayRect.left + _cropRect.left * displayedW,
-      imageDisplayRect.top + _cropRect.top * displayedH,
-      _cropRect.width * displayedW,
-      _cropRect.height * displayedH,
+    // Build pixel rect directly from raw LTRB — no Rect width/height roundtrip
+    final cropPixelRect = Rect.fromLTRB(
+      offsetX + _cropL * displayedW,
+      offsetY + _cropT * displayedH,
+      offsetX + _cropR * displayedW,
+      offsetY + _cropB * displayedH,
     );
 
     return GestureDetector(
       onPanStart: (details) => _onPanStart(details.localPosition, cropPixelRect, imageDisplayRect),
-      onPanUpdate: (details) => _onPanUpdate(details.localPosition, cropPixelRect, imageDisplayRect),
+      onPanUpdate: (details) => _onPanUpdate(details.localPosition, imageDisplayRect),
       onPanEnd: (_) => setState(() => _activeHandle = null),
       child: Stack(
         children: [
-          // Render raw original image inside bounds
           Positioned.fromRect(
             rect: imageDisplayRect,
             child: RawImage(
@@ -443,7 +433,6 @@ class _ImageCropDialogState extends State<ImageCropDialog> {
               filterQuality: FilterQuality.high,
             ),
           ),
-          // Custom Painter for dim exterior, crop box grid, and drag handles
           CustomPaint(
             size: Size(canvasW, canvasH),
             painter: _CropOverlayPainter(
@@ -463,101 +452,230 @@ class _ImageCropDialogState extends State<ImageCropDialog> {
       setState(() {
         _activeHandle = handle;
         _dragStartOffset = localPos;
-        _initialCropRect = _cropRect;
+        _initL = _cropL; _initT = _cropT; _initR = _cropR; _initB = _cropB;
       });
     }
   }
 
-  void _onPanUpdate(Offset localPos, Rect cropPixelRect, Rect imageDisplayRect) {
-    if (_activeHandle == null || _dragStartOffset == null || _initialCropRect == null) return;
+  void _onPanUpdate(Offset localPos, Rect imageDisplayRect) {
+    if (_activeHandle == null || _dragStartOffset == null || _decodedImage == null) return;
 
     final delta = localPos - _dragStartOffset!;
     final normDeltaX = delta.dx / imageDisplayRect.width;
     final normDeltaY = delta.dy / imageDisplayRect.height;
 
-    double left = _initialCropRect!.left;
-    double top = _initialCropRect!.top;
-    double right = _initialCropRect!.right;
-    double bottom = _initialCropRect!.bottom;
-
     final targetRatio = _getTargetAspectRatio();
 
-    switch (_activeHandle!) {
-      case _DragHandleType.move:
-        double newLeft = left + normDeltaX;
-        double newTop = top + normDeltaY;
-        final w = right - left;
-        final h = bottom - top;
-
-        newLeft = newLeft.clamp(0.0, 1.0 - w);
-        newTop = newTop.clamp(0.0, 1.0 - h);
-
-        setState(() {
-          _cropRect = Rect.fromLTWH(newLeft, newTop, w, h);
-        });
-        return;
-
-      case _DragHandleType.topLeft:
-        left += normDeltaX;
-        top += normDeltaY;
-        break;
-      case _DragHandleType.topRight:
-        right += normDeltaX;
-        top += normDeltaY;
-        break;
-      case _DragHandleType.bottomLeft:
-        left += normDeltaX;
-        bottom += normDeltaY;
-        break;
-      case _DragHandleType.bottomRight:
-        right += normDeltaX;
-        bottom += normDeltaY;
-        break;
-      case _DragHandleType.left:
-        left += normDeltaX;
-        break;
-      case _DragHandleType.right:
-        right += normDeltaX;
-        break;
-      case _DragHandleType.top:
-        top += normDeltaY;
-        break;
-      case _DragHandleType.bottom:
-        bottom += normDeltaY;
-        break;
+    // Move handle: translate the whole rect
+    if (_activeHandle == _DragHandleType.move) {
+      final w = _initR - _initL;
+      final h = _initB - _initT;
+      final nl = (_initL + normDeltaX).clamp(0.0, 1.0 - w);
+      final nt = (_initT + normDeltaY).clamp(0.0, 1.0 - h);
+      setState(() {
+        _cropL = nl; _cropT = nt; _cropR = nl + w; _cropB = nt + h;
+      });
+      return;
     }
 
-    // Clamp normalized values inside [0..1]
-    left = left.clamp(0.0, right - 0.05);
-    top = top.clamp(0.0, bottom - 0.05);
-    right = right.clamp(left + 0.05, 1.0);
-    bottom = bottom.clamp(top + 0.05, 1.0);
+    final double initW = _initR - _initL;
+    final double initH = _initB - _initT;
+    const double minSize = 0.05;
 
-    double newW = right - left;
-    double newH = bottom - top;
-
-    // Apply aspect ratio constraint if active preset is fixed
     if (targetRatio != null) {
       final imgW = _decodedImage!.width.toDouble();
       final imgH = _decodedImage!.height.toDouble();
+      final k = (imgH / imgW) * targetRatio; // normW / normH
 
-      // Current ratio in pixels
-      final currentPixelRatio = (newW * imgW) / (newH * imgH);
+      double newL = _initL, newT = _initT, newR = _initR, newB = _initB;
 
-      if ((currentPixelRatio - targetRatio).abs() > 0.01) {
-        if (_activeHandle == _DragHandleType.left || _activeHandle == _DragHandleType.right) {
-          newH = (newW * imgW / targetRatio) / imgH;
-          if (top + newH > 1.0) newH = 1.0 - top;
-        } else {
-          newW = (newH * imgH * targetRatio) / imgW;
-          if (left + newW > 1.0) newW = 1.0 - left;
+      switch (_activeHandle!) {
+        case _DragHandleType.bottomRight: {
+          // Anchor: Top-Left (_initL, _initT)
+          final dWx = normDeltaX;
+          final dWy = normDeltaY * k;
+          final requestedW = initW + ((dWx.abs() > dWy.abs()) ? dWx : dWy);
+          final maxWx = 1.0 - _initL;
+          final maxWy = (1.0 - _initT) * k;
+          final maxW = (maxWx < maxWy) ? maxWx : maxWy;
+          final finalW = requestedW.clamp(minSize, maxW);
+          final finalH = finalW / k;
+          newL = _initL;
+          newT = _initT;
+          newR = _initL + finalW;
+          newB = _initT + finalH;
+          break;
         }
+        case _DragHandleType.bottomLeft: {
+          // Anchor: Top-Right (_initR, _initT)
+          final dWx = -normDeltaX;
+          final dWy = normDeltaY * k;
+          final requestedW = initW + ((dWx.abs() > dWy.abs()) ? dWx : dWy);
+          final maxWx = _initR;
+          final maxWy = (1.0 - _initT) * k;
+          final maxW = (maxWx < maxWy) ? maxWx : maxWy;
+          final finalW = requestedW.clamp(minSize, maxW);
+          final finalH = finalW / k;
+          newR = _initR;
+          newT = _initT;
+          newL = _initR - finalW;
+          newB = _initT + finalH;
+          break;
+        }
+        case _DragHandleType.topRight: {
+          // Anchor: Bottom-Left (_initL, _initB)
+          final dWx = normDeltaX;
+          final dWy = -normDeltaY * k;
+          final requestedW = initW + ((dWx.abs() > dWy.abs()) ? dWx : dWy);
+          final maxWx = 1.0 - _initL;
+          final maxWy = _initB * k;
+          final maxW = (maxWx < maxWy) ? maxWx : maxWy;
+          final finalW = requestedW.clamp(minSize, maxW);
+          final finalH = finalW / k;
+          newL = _initL;
+          newB = _initB;
+          newR = _initL + finalW;
+          newT = _initB - finalH;
+          break;
+        }
+        case _DragHandleType.topLeft: {
+          // Anchor: Bottom-Right (_initR, _initB)
+          final dWx = -normDeltaX;
+          final dWy = -normDeltaY * k;
+          final requestedW = initW + ((dWx.abs() > dWy.abs()) ? dWx : dWy);
+          final maxWx = _initR;
+          final maxWy = _initB * k;
+          final maxW = (maxWx < maxWy) ? maxWx : maxWy;
+          final finalW = requestedW.clamp(minSize, maxW);
+          final finalH = finalW / k;
+          newR = _initR;
+          newB = _initB;
+          newL = _initR - finalW;
+          newT = _initB - finalH;
+          break;
+        }
+        case _DragHandleType.left: {
+          // Anchor: Top-Right (Right & Top fixed)
+          final requestedW = initW - normDeltaX;
+          final maxWx = _initR;
+          final maxWy = (1.0 - _initT) * k;
+          final maxW = (maxWx < maxWy) ? maxWx : maxWy;
+          final finalW = requestedW.clamp(minSize, maxW);
+          final finalH = finalW / k;
+          newR = _initR;
+          newT = _initT;
+          newL = _initR - finalW;
+          newB = _initT + finalH;
+          break;
+        }
+        case _DragHandleType.right: {
+          // Anchor: Top-Left (Left & Top fixed)
+          final requestedW = initW + normDeltaX;
+          final maxWx = 1.0 - _initL;
+          final maxWy = (1.0 - _initT) * k;
+          final maxW = (maxWx < maxWy) ? maxWx : maxWy;
+          final finalW = requestedW.clamp(minSize, maxW);
+          final finalH = finalW / k;
+          newL = _initL;
+          newT = _initT;
+          newR = _initL + finalW;
+          newB = _initT + finalH;
+          break;
+        }
+        case _DragHandleType.top: {
+          // Anchor: Bottom-Left (Left & Bottom fixed)
+          final requestedW = (initH - normDeltaY) * k;
+          final maxWx = 1.0 - _initL;
+          final maxWy = _initB * k;
+          final maxW = (maxWx < maxWy) ? maxWx : maxWy;
+          final finalW = requestedW.clamp(minSize, maxW);
+          final finalH = finalW / k;
+          newL = _initL;
+          newB = _initB;
+          newR = _initL + finalW;
+          newT = _initB - finalH;
+          break;
+        }
+        case _DragHandleType.bottom: {
+          // Anchor: Top-Left (Left & Top fixed)
+          final requestedW = (initH + normDeltaY) * k;
+          final maxWx = 1.0 - _initL;
+          final maxWy = (1.0 - _initT) * k;
+          final maxW = (maxWx < maxWy) ? maxWx : maxWy;
+          final finalW = requestedW.clamp(minSize, maxW);
+          final finalH = finalW / k;
+          newL = _initL;
+          newT = _initT;
+          newR = _initL + finalW;
+          newB = _initT + finalH;
+          break;
+        }
+        case _DragHandleType.move:
+          break;
       }
-    }
 
-    setState(() {
-      _cropRect = Rect.fromLTWH(left, top, newW, newH);
-    });
+      setState(() {
+        _cropL = newL;
+        _cropT = newT;
+        _cropR = newR;
+        _cropB = newB;
+      });
+    } else {
+      // Free aspect ratio mode
+      double newL = _initL, newT = _initT, newR = _initR, newB = _initB;
+
+      switch (_activeHandle!) {
+        case _DragHandleType.topLeft:
+          newL = (_initL + normDeltaX).clamp(0.0, _initR - 0.05);
+          newT = (_initT + normDeltaY).clamp(0.0, _initB - 0.05);
+          newR = _initR;
+          newB = _initB;
+          break;
+        case _DragHandleType.topRight:
+          newR = (_initR + normDeltaX).clamp(_initL + 0.05, 1.0);
+          newT = (_initT + normDeltaY).clamp(0.0, _initB - 0.05);
+          newL = _initL;
+          newB = _initB;
+          break;
+        case _DragHandleType.bottomLeft:
+          newL = (_initL + normDeltaX).clamp(0.0, _initR - 0.05);
+          newB = (_initB + normDeltaY).clamp(_initT + 0.05, 1.0);
+          newR = _initR;
+          newT = _initT;
+          break;
+        case _DragHandleType.bottomRight:
+          newR = (_initR + normDeltaX).clamp(_initL + 0.05, 1.0);
+          newB = (_initB + normDeltaY).clamp(_initT + 0.05, 1.0);
+          newL = _initL;
+          newT = _initT;
+          break;
+        case _DragHandleType.left:
+          newL = (_initL + normDeltaX).clamp(0.0, _initR - 0.05);
+          newR = _initR;
+          break;
+        case _DragHandleType.right:
+          newR = (_initR + normDeltaX).clamp(_initL + 0.05, 1.0);
+          newL = _initL;
+          break;
+        case _DragHandleType.top:
+          newT = (_initT + normDeltaY).clamp(0.0, _initB - 0.05);
+          newB = _initB;
+          break;
+        case _DragHandleType.bottom:
+          newB = (_initB + normDeltaY).clamp(_initT + 0.05, 1.0);
+          newT = _initT;
+          break;
+        case _DragHandleType.move:
+          break;
+      }
+
+      setState(() {
+        _cropL = newL;
+        _cropT = newT;
+        _cropR = newR;
+        _cropB = newB;
+      });
+    }
   }
 
   _DragHandleType? _getHitHandle(Offset touch, Rect cropRect) {

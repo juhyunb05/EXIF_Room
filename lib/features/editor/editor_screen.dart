@@ -3,8 +3,6 @@ import 'dart:ui' as ui;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/rendering.dart';
 import 'package:http/http.dart' as http;
-import 'package:intl/intl.dart';
-
 import 'package:flutter/material.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -14,11 +12,14 @@ import '../../core/models/poster_project.dart';
 import '../../core/services/database_service.dart';
 import '../../core/services/file_manager_service.dart';
 import '../../core/models/edit_data.dart';
+import '../../core/utils/poster_layout_config.dart';
 import '../../theme/app_theme.dart';
 import '../../widgets/poster_canvas.dart';
 import '../../widgets/loading_overlay.dart';
 import '../../widgets/hover_interaction.dart';
 import '../../widgets/image_edit_dialog.dart';
+import 'widgets/editor_action_panel.dart';
+import 'widgets/editor_form.dart';
 
 class EditorScreen extends StatefulWidget {
   final String imagePath;
@@ -54,12 +55,16 @@ class _EditorScreenState extends State<EditorScreen> {
   void initState() {
     super.initState();
     _currentExif = widget.initialExif ?? ExifData();
-    _cameraMakeController = TextEditingController(text: _currentExif.cameraMake);
-    _cameraNameController = TextEditingController(text: _currentExif.cameraName);
+    _cameraMakeController =
+        TextEditingController(text: _currentExif.cameraMake);
+    _cameraNameController =
+        TextEditingController(text: _currentExif.cameraName);
     _locationController = TextEditingController(text: _currentExif.location);
-    _focalLengthController = TextEditingController(text: _currentExif.focalLength);
+    _focalLengthController =
+        TextEditingController(text: _currentExif.focalLength);
     _apertureController = TextEditingController(text: _currentExif.aperture);
-    _shutterSpeedController = TextEditingController(text: _currentExif.shutterSpeed);
+    _shutterSpeedController =
+        TextEditingController(text: _currentExif.shutterSpeed);
     _isoController = TextEditingController(text: _currentExif.iso);
   }
 
@@ -72,17 +77,14 @@ class _EditorScreenState extends State<EditorScreen> {
     _apertureController.dispose();
     _shutterSpeedController.dispose();
     _isoController.dispose();
-    
-    // 화면 이탈 시 남아있을 수 있는 모든 이미지 텍스처 리소스 강제 반환
-    PaintingBinding.instance.imageCache.clear();
-    PaintingBinding.instance.imageCache.clearLiveImages();
+
+    // Let Flutter manage cache; avoid aggressive clearing to reduce jank.
     super.dispose();
   }
 
   Future<void> _exportPoster() async {
     setState(() => _isExporting = true);
-    
-    // 메모리 즉시 해제를 위해 대형 로컬 그래픽 버퍼들을 미리 선언
+
     Uint8List? fileBytes;
     Uint8List? imageBytes;
     Uint8List? thumbnailBytes;
@@ -96,37 +98,50 @@ class _EditorScreenState extends State<EditorScreen> {
       } else {
         fileBytes = await File(widget.imagePath).readAsBytes();
       }
+
       final codec = await ui.instantiateImageCodec(fileBytes);
       final frameInfo = await codec.getNextFrame();
       final ui.Image img = frameInfo.image;
-      double ratio = (img.width * _editData.cropRect.width) / (img.height * _editData.cropRect.height);
+
+      double ratio =
+          (img.width * _editData.cropRect.width) /
+              (img.height * _editData.cropRect.height);
       if (_imageRotation % 2 != 0) {
         ratio = 1.0 / ratio;
       }
       final double imageHeight = 2400 / ratio;
-      
-      // 즉시 이미지 객체를 해제하여 힙 메모리 누수 방지
+
       img.dispose();
-      
-      // Accurately calculate the height of the info section
-      int nameLength = (_currentExif.cameraName ?? "UNKNOWN CAMERA").length;
+
+      int nameLength =
+          (_currentExif.cameraName ?? "UNKNOWN CAMERA").length;
       int nameLines = (nameLength / 16).ceil();
       if (nameLines < 1) nameLines = 1;
-      
-      double leftHeight = 56.0 + 72.0 + (80.0 * nameLines); // Name, spacer, date
-      if (_currentExif.cameraMake != null && _currentExif.cameraMake!.isNotEmpty) {
-        leftHeight += 104.0; // 80 text + 24 spacer
-      }
-      if (_currentExif.location != null && _currentExif.location!.isNotEmpty) {
-        leftHeight += 88.0; // 72 text + 16 spacer
-      }
-      
-      double rightHeight = 240.0; // 80 text + 80 spacer + 80 text
-      
-      final double textHeight = leftHeight > rightHeight ? leftHeight : rightHeight;
 
-      // 200 (top) + image + 320 (middle) + dynamic text height + 320 (bottom)
-      final double totalHeight = 200 + imageHeight + 320 + textHeight + 320;
+      double leftHeight =
+          PosterLayoutConfig.leftBrandHeight +
+          PosterLayoutConfig.modelToSpacer +
+          (PosterLayoutConfig.leftBrandHeight * nameLines);
+      if (_currentExif.cameraMake != null &&
+          _currentExif.cameraMake!.isNotEmpty) {
+        leftHeight += PosterLayoutConfig.leftBrandSpacer + 80;
+      }
+      if (_currentExif.location != null &&
+          _currentExif.location!.isNotEmpty) {
+        leftHeight += PosterLayoutConfig.locationTextHeight +
+            PosterLayoutConfig.locationSpacer;
+      }
+
+      double rightHeight = PosterLayoutConfig.rightBlockFixedHeight;
+
+      final double textHeight =
+          leftHeight > rightHeight ? leftHeight : rightHeight;
+
+      final double totalHeight = PosterLayoutConfig.topPadding +
+          imageHeight +
+          PosterLayoutConfig.imageToInfoPadding +
+          textHeight +
+          PosterLayoutConfig.bottomPadding;
 
       final captureResult = await _captureOffscreenWidget(
         Material(
@@ -139,11 +154,10 @@ class _EditorScreenState extends State<EditorScreen> {
             isPreview: false,
           ),
         ),
-        Size(2800, totalHeight),
-        pixelRatio: 1.0, // Export width: 2800px (high quality)
+        Size(PosterLayoutConfig.exportWidth, totalHeight),
+        pixelRatio: 1.0,
       );
 
-      // 백그라운드 스레드(Native) 또는 브라우저 네이티브 Canvas(Web)에서 JPEG 인코딩 및 썸네일 생성 실행
       final processedData = await processExportedImageHelper(
         rawRgba: captureResult['rawRgba'],
         width: captureResult['width'],
@@ -153,7 +167,8 @@ class _EditorScreenState extends State<EditorScreen> {
       imageBytes = processedData['jpg'];
       thumbnailBytes = processedData['thumb'];
 
-      final fileName = FileManagerService.generateFileName(_currentExif, 'jpg');
+      final fileName =
+          FileManagerService.generateFileName(_currentExif, 'jpg');
       String? filePath;
 
       if (!kIsWeb) {
@@ -175,34 +190,40 @@ class _EditorScreenState extends State<EditorScreen> {
         thumbnailBytes: thumbnailBytes,
       );
 
-      await DatabaseService().saveProject(project, originalImageBytes: kIsWeb ? imageBytes : null);
+      await DatabaseService().saveProject(
+        project,
+        originalImageBytes: kIsWeb ? imageBytes : null,
+      );
 
       if (mounted) {
-        _showSuccessSheet(kIsWeb ? fileName : filePath!, webBytes: kIsWeb ? imageBytes : null);
+        _showSuccessSheet(
+          kIsWeb ? fileName : filePath!,
+          webBytes: kIsWeb ? imageBytes : null,
+        );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(
-          context,
-        ).showSnackBar(SnackBar(content: Text("Export failed: $e")));
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text("Export failed: $e")),
+        );
       }
     } finally {
-      // 대형 그래픽 메모리 객체들의 레퍼런스를 null 처리하여 가비지 수집 즉시 유도
       fileBytes = null;
       imageBytes = null;
       thumbnailBytes = null;
 
-      // 이미지 캐시를 강제 정화하여 렌더링 텍스처 즉시 반환
-      PaintingBinding.instance.imageCache.clear();
-      PaintingBinding.instance.imageCache.clearLiveImages();
-
+      // Let Flutter manage cache; avoid aggressive clearing.
       if (mounted) setState(() => _isExporting = false);
     }
   }
 
-  Future<Map<String, dynamic>> _captureOffscreenWidget(Widget widget, Size targetSize, {double pixelRatio = 1.0}) async {
+  Future<Map<String, dynamic>> _captureOffscreenWidget(
+    Widget widget,
+    Size targetSize, {
+    double pixelRatio = 1.0,
+  }) async {
     final GlobalKey boundaryKey = GlobalKey();
-    
+
     final OverlayEntry entry = OverlayEntry(
       builder: (context) {
         return Positioned(
@@ -225,14 +246,16 @@ class _EditorScreenState extends State<EditorScreen> {
 
     Overlay.of(context).insert(entry);
 
-    // Wait for the layout and images to load
     await Future.delayed(const Duration(milliseconds: 500));
 
     try {
-      final RenderRepaintBoundary boundary = boundaryKey.currentContext!.findRenderObject() as RenderRepaintBoundary;
-      final ui.Image image = await boundary.toImage(pixelRatio: pixelRatio);
-      // 매우 느린 png 인코딩 대신 즉시 반환되는 rawRgba 사용
-      final ByteData? byteData = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+      final RenderRepaintBoundary boundary =
+          boundaryKey.currentContext!.findRenderObject()
+              as RenderRepaintBoundary;
+      final ui.Image image =
+          await boundary.toImage(pixelRatio: pixelRatio);
+      final ByteData? byteData =
+          await image.toByteData(format: ui.ImageByteFormat.rawRgba);
       return {
         'rawRgba': byteData!.buffer.asUint8List(),
         'width': image.width,
@@ -248,8 +271,9 @@ class _EditorScreenState extends State<EditorScreen> {
       context: context,
       barrierColor: Colors.black.withAlpha(153),
       builder: (dialogContext) => Dialog(
-        backgroundColor: const Color(0xFF262626), // Dark iOS-like gray
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
+        backgroundColor: const Color(0xFF262626),
+        shape:
+            RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
         child: SizedBox(
           width: 260,
           child: Column(
@@ -260,7 +284,7 @@ class _EditorScreenState extends State<EditorScreen> {
                 child: Text(
                   "저장완료",
                   style: TextStyle(
-                    fontFamily: 'Pretendard', 
+                    fontFamily: 'Pretendard',
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                     color: AppTheme.uiWhite,
@@ -275,10 +299,18 @@ class _EditorScreenState extends State<EditorScreen> {
                   Navigator.pop(dialogContext);
                   if (kIsWeb) {
                     if (webBytes != null) {
-                      await FileManagerService.shareOrSaveImage(path, false, webBytes: webBytes);
+                      await FileManagerService.shareOrSaveImage(
+                        path,
+                        false,
+                        webBytes: webBytes,
+                      );
                     }
                   } else {
-                    await FileManagerService.shareOrSaveImage(path, Platform.isWindows, saveToDevice: true);
+                    await FileManagerService.shareOrSaveImage(
+                      path,
+                      Platform.isWindows,
+                      saveToDevice: true,
+                    );
                   }
                   if (!mounted) return;
                   Navigator.pop(context, true);
@@ -313,7 +345,11 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
-  Widget _buildDialogButton({required IconData icon, required String text, required VoidCallback onTap}) {
+  Widget _buildDialogButton({
+    required IconData icon,
+    required String text,
+    required VoidCallback onTap,
+  }) {
     return HoverInteraction(
       child: InkWell(
         onTap: onTap,
@@ -356,7 +392,6 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
-
   Widget _buildDesktopLayout() {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -380,11 +415,40 @@ class _EditorScreenState extends State<EditorScreen> {
             children: [
               Expanded(
                 child: SingleChildScrollView(
-                  child: _buildEditPanel(),
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 32, 24, 40),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        EditorActionPanel(
+                          onEdit: _openEditDialog,
+                          onRotate: () {
+                            setState(() {
+                              _imageRotation = (_imageRotation + 1) % 4;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 24),
+                        EditorForm(
+                          currentExif: _currentExif,
+                          cameraMakeController: _cameraMakeController,
+                          cameraNameController: _cameraNameController,
+                          locationController: _locationController,
+                          focalLengthController: _focalLengthController,
+                          apertureController: _apertureController,
+                          shutterSpeedController: _shutterSpeedController,
+                          isoController: _isoController,
+                          onExifChanged: (exif) => setState(() => _currentExif = exif),
+                          parentContext: context,
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ),
               Padding(
-                padding: const EdgeInsets.only(left: 24, right: 24, bottom: 20, top: 10),
+                padding:
+                    const EdgeInsets.only(left: 24, right: 24, bottom: 20, top: 10),
                 child: _buildBottomButtons(),
               ),
             ],
@@ -426,14 +490,34 @@ class _EditorScreenState extends State<EditorScreen> {
               SliverPersistentHeader(
                 pinned: true,
                 delegate: _EditButtonsHeaderDelegate(
-                  child: _buildActionButtons(),
+                  child: EditorActionPanel(
+                    onEdit: _openEditDialog,
+                    onRotate: () {
+                      setState(() {
+                        _imageRotation = (_imageRotation + 1) % 4;
+                      });
+                    },
+                  ),
                 ),
               ),
               SliverToBoxAdapter(
                 child: Container(
-                  constraints: BoxConstraints(minHeight: size.height * 0.45),
-                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 120),
-                  child: _buildEditFields(),
+                  constraints:
+                      BoxConstraints(minHeight: size.height * 0.45),
+                  padding:
+                      const EdgeInsets.fromLTRB(24, 16, 24, 120),
+                  child: EditorForm(
+                    currentExif: _currentExif,
+                    cameraMakeController: _cameraMakeController,
+                    cameraNameController: _cameraNameController,
+                    locationController: _locationController,
+                    focalLengthController: _focalLengthController,
+                    apertureController: _apertureController,
+                    shutterSpeedController: _shutterSpeedController,
+                    isoController: _isoController,
+                    onExifChanged: (exif) => setState(() => _currentExif = exif),
+                    parentContext: context,
+                  ),
                 ),
               ),
             ],
@@ -454,7 +538,8 @@ class _EditorScreenState extends State<EditorScreen> {
                 ],
               ),
             ),
-            padding: const EdgeInsets.only(left: 24, right: 24, bottom: 20, top: 24),
+            padding:
+                const EdgeInsets.only(left: 24, right: 24, bottom: 20, top: 24),
             child: SafeArea(
               top: false,
               child: _buildBottomButtons(),
@@ -507,165 +592,6 @@ class _EditorScreenState extends State<EditorScreen> {
     );
   }
 
-  Widget _buildActionButtons() {
-    return Row(
-      children: [
-        Expanded(
-          child: HoverInteraction(
-            child: InkWell(
-              onTap: _openEditDialog,
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2C2C2E),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.uiWhite.withAlpha(30)),
-                ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.tune_rounded, color: AppTheme.uiWhite, size: 18),
-                    SizedBox(width: 8),
-                    Text(
-                      '편집하기',
-                      style: TextStyle(
-                        fontFamily: 'Pretendard',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.uiWhite,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: HoverInteraction(
-            child: InkWell(
-              onTap: () {
-                setState(() {
-                  _imageRotation = (_imageRotation + 1) % 4;
-                });
-              },
-              borderRadius: BorderRadius.circular(12),
-              child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 16),
-                decoration: BoxDecoration(
-                  color: const Color(0xFF2C2C2E),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: AppTheme.uiWhite.withAlpha(30)),
-                ),
-                child: const Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(Icons.rotate_right_rounded, color: AppTheme.uiWhite, size: 18),
-                    SizedBox(width: 6),
-                    Text(
-                      '90° 회전',
-                      style: TextStyle(
-                        fontFamily: 'Pretendard',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: AppTheme.uiWhite,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEditFields() {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        _buildElegantField(
-          "카메라 제조사",
-          _cameraMakeController,
-          (v) => setState(() => _currentExif.cameraMake = v),
-        ),
-        _buildElegantField(
-          "모델명",
-          _cameraNameController,
-          (v) => setState(() => _currentExif.cameraName = v),
-        ),
-        _buildElegantField(
-          "위치 (도시, 국가)",
-          _locationController,
-          (v) => setState(() => _currentExif.location = v),
-        ),
-        _buildDateField(
-          "날짜",
-          _currentExif.shotDate,
-        ),
-        Row(
-          children: [
-            Expanded(
-              child: _buildElegantField(
-                "초점 거리",
-                _focalLengthController,
-                (v) => setState(
-                  () => _currentExif.focalLength = v,
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildElegantField(
-                "조리개",
-                _apertureController,
-                (v) => setState(() => _currentExif.aperture = v),
-              ),
-            ),
-          ],
-        ),
-        Row(
-          children: [
-            Expanded(
-              child: _buildElegantField(
-                "셔터 속도",
-                _shutterSpeedController,
-                (v) => setState(
-                  () => _currentExif.shutterSpeed = v,
-                ),
-              ),
-            ),
-            const SizedBox(width: 16),
-            Expanded(
-              child: _buildElegantField(
-                "ISO",
-                _isoController,
-                (v) => setState(() => _currentExif.iso = v),
-              ),
-            ),
-          ],
-        ),
-      ],
-    );
-  }
-
-  Widget _buildEditPanel() {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 32, 24, 40),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          _buildActionButtons(),
-          const SizedBox(height: 24),
-          _buildEditFields(),
-        ],
-      ),
-    );
-  }
-
   Widget _buildBottomButtons() {
     return Row(
       children: [
@@ -704,7 +630,9 @@ class _EditorScreenState extends State<EditorScreen> {
               child: Container(
                 padding: const EdgeInsets.symmetric(vertical: 16),
                 decoration: BoxDecoration(
-                  color: _isExporting ? Colors.grey.withAlpha(100) : AppTheme.uiWhite,
+                  color: _isExporting
+                      ? Colors.grey.withAlpha(100)
+                      : AppTheme.uiWhite,
                   borderRadius: BorderRadius.circular(30),
                 ),
                 child: Center(
@@ -725,166 +653,6 @@ class _EditorScreenState extends State<EditorScreen> {
       ],
     );
   }
-
-  Widget _buildElegantField(
-    String label,
-    TextEditingController controller,
-    Function(String) onChanged,
-  ) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(fontFamily: 'Pretendard', 
-              fontSize: 16,
-              fontWeight: FontWeight.w400,
-              color: AppTheme.subtitleColor.withAlpha(150),
-            ),
-          ),
-          TextField(
-            controller: controller,
-            style: TextStyle(fontFamily: 'Pretendard', 
-              fontSize: 18,
-              fontWeight: FontWeight.w500,
-            ),
-            decoration: const InputDecoration(
-              isDense: true,
-              contentPadding: EdgeInsets.symmetric(vertical: 8),
-              border: InputBorder.none,
-            ),
-            onChanged: onChanged,
-          ),
-          Container(height: 1, color: Colors.grey.withAlpha(50)),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDateField(String label, DateTime? value) {
-    final displayDate = value != null ? DateFormat("yyyy/MM/dd HH:mm").format(value) : "";
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 24),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: TextStyle(fontFamily: 'Pretendard', 
-              fontSize: 16,
-              fontWeight: FontWeight.w400,
-              color: AppTheme.subtitleColor.withAlpha(150),
-            ),
-          ),
-          InkWell(
-              onTap: () async {
-                final initialDate = value ?? DateTime.now();
-                final date = await showDatePicker(
-                  context: context,
-                  initialDate: initialDate,
-                  firstDate: DateTime(1900),
-                  lastDate: DateTime.now(),
-                  builder: (context, child) {
-                    return Theme(
-                      data: Theme.of(context).copyWith(
-                        colorScheme: const ColorScheme.dark(
-                          primary: AppTheme.uiWhite,
-                          onPrimary: Colors.black,
-                          surface: AppTheme.canvasColor,
-                          onSurface: AppTheme.uiWhite,
-                          secondary: AppTheme.uiWhite,
-                          onSecondary: Colors.black,
-                          surfaceTint: Colors.transparent,
-                        ),
-                        textButtonTheme: TextButtonThemeData(
-                          style: TextButton.styleFrom(
-                            foregroundColor: AppTheme.uiWhite,
-                            textStyle: const TextStyle(fontFamily: 'Pretendard', fontWeight: FontWeight.w600),
-                          ),
-                        ),
-                      ),
-                      child: child!,
-                    );
-                  },
-                );
-
-                if (date != null && mounted) {
-                  final time = await showTimePicker(
-                    context: context,
-                    initialTime: TimeOfDay.fromDateTime(initialDate),
-                    builder: (context, child) {
-                      return Theme(
-                        data: Theme.of(context).copyWith(
-                          colorScheme: const ColorScheme.dark(
-                            primary: AppTheme.uiWhite,
-                            onPrimary: Colors.black,
-                            surface: AppTheme.canvasColor,
-                            onSurface: AppTheme.uiWhite,
-                            secondary: AppTheme.uiWhite,
-                            onSecondary: Colors.black,
-                            surfaceTint: Colors.transparent,
-                          ),
-                          timePickerTheme: TimePickerThemeData(
-                            backgroundColor: AppTheme.canvasColor,
-                            hourMinuteTextColor: AppTheme.uiWhite,
-                            hourMinuteColor: AppTheme.uiWhite.withAlpha(20),
-                            dayPeriodTextColor: WidgetStateColor.resolveWith((states) =>
-                                states.contains(WidgetState.selected) ? Colors.black : AppTheme.uiWhite),
-                            dayPeriodColor: WidgetStateColor.resolveWith((states) =>
-                                states.contains(WidgetState.selected) ? AppTheme.uiWhite : AppTheme.uiWhite.withAlpha(20)),
-                            dialHandColor: AppTheme.uiWhite,
-                            dialBackgroundColor: AppTheme.uiWhite.withAlpha(10),
-                            dialTextColor: WidgetStateColor.resolveWith((states) =>
-                                states.contains(WidgetState.selected) ? Colors.black : AppTheme.uiWhite),
-                            entryModeIconColor: AppTheme.uiWhite,
-                            helpTextStyle: const TextStyle(color: AppTheme.uiWhite, fontFamily: 'Pretendard'),
-                            cancelButtonStyle: TextButton.styleFrom(foregroundColor: AppTheme.uiWhite, textStyle: const TextStyle(fontFamily: 'Pretendard')),
-                            confirmButtonStyle: TextButton.styleFrom(foregroundColor: AppTheme.uiWhite, textStyle: const TextStyle(fontFamily: 'Pretendard')),
-                          ),
-                          textButtonTheme: TextButtonThemeData(
-                            style: TextButton.styleFrom(
-                              foregroundColor: AppTheme.uiWhite,
-                              textStyle: const TextStyle(fontFamily: 'Pretendard', fontWeight: FontWeight.w600),
-                            ),
-                          ),
-                        ),
-                        child: child!,
-                      );
-                    },
-                  );
-                  if (time != null && mounted) {
-                    setState(() {
-                      _currentExif.shotDate = DateTime(
-                        date.year,
-                        date.month,
-                        date.day,
-                        time.hour,
-                        time.minute,
-                      );
-                    });
-                  }
-                }
-              },
-              child: Container(
-                width: double.infinity,
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: Text(
-                  displayDate.isEmpty ? "날짜 선택" : displayDate,
-                  style: TextStyle(fontFamily: 'Pretendard', 
-                    fontSize: 18,
-                    fontWeight: FontWeight.w500,
-                    color: displayDate.isEmpty ? Colors.grey : AppTheme.uiWhite,
-                  ),
-                ),
-              ),
-          ),
-          Container(height: 1, color: Colors.grey.withAlpha(50)),
-        ],
-      ),
-    );
-  }
 }
 
 class _EditButtonsHeaderDelegate extends SliverPersistentHeaderDelegate {
@@ -895,7 +663,8 @@ class _EditButtonsHeaderDelegate extends SliverPersistentHeaderDelegate {
   });
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
     return Container(
       decoration: BoxDecoration(
         gradient: LinearGradient(

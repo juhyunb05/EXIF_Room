@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:file_selector/file_selector.dart';
-import 'package:flutter_staggered_grid_view/flutter_staggered_grid_view.dart';
 import 'package:heic_to_png_jpg/heic_to_png_jpg.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:path/path.dart' as p;
@@ -12,6 +11,8 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/models/poster_project.dart';
 import '../../core/models/project_category.dart';
+import '../../core/providers/gallery_provider.dart';
+import 'package:provider/provider.dart';
 import '../../core/services/database_service.dart';
 import '../../widgets/loading_overlay.dart';
 import '../../core/services/exif_service.dart';
@@ -23,6 +24,10 @@ import 'custom_license_screen.dart';
 import 'privacy_policy_screen.dart';
 import 'version_info_screen.dart';
 import '../../widgets/hover_interaction.dart';
+import 'widgets/gallery_grid.dart';
+import 'widgets/category_bar.dart';
+import 'widgets/project_context_menu.dart';
+import 'widgets/image_viewer_dialog.dart';
 
 class GalleryScreen extends StatefulWidget {
   const GalleryScreen({super.key});
@@ -32,16 +37,12 @@ class GalleryScreen extends StatefulWidget {
 }
 
 class _GalleryScreenState extends State<GalleryScreen> {
-  List<PosterProject> _projects = [];
-  List<ProjectCategory> _categories = [];
-  int? _selectedCategoryId;
-  bool _isLoading = true;
   String _currentVersion = 'v0.0.0';
 
   @override
   void initState() {
     super.initState();
-    _loadProjects();
+    // Projects are already loaded by MultiProvider during app startup
     _loadVersion();
   }
 
@@ -67,13 +68,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
   }
 
   Future<void> _loadProjects() async {
-    final projects = await DatabaseService().getAllProjects();
-    final categories = await DatabaseService().getAllCategories();
-    setState(() {
-      _projects = projects..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-      _categories = categories;
-      _isLoading = false;
-    });
+    // Left for compatibility with _pickImage return, but provider handles it
+    await context.read<GalleryProvider>().loadProjects();
   }
 
   Future<void> _pickImage() async {
@@ -165,7 +161,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     showDialog(
       context: context,
       barrierColor: Colors.black.withAlpha(204), // 80% opacity black barrier
-      builder: (context) => _ImageViewerDialog(project: project),
+      builder: (context) => ImageViewerDialog(project: project),
     );
   }
 
@@ -178,19 +174,20 @@ class _GalleryScreenState extends State<GalleryScreen> {
         transitionDuration: const Duration(milliseconds: 350),
         reverseTransitionDuration: const Duration(milliseconds: 250),
         pageBuilder: (context, animation, secondaryAnimation) {
-          return _ProjectContextMenu(
+          return ProjectContextMenu(
             project: project,
             itemRect: itemRect,
             onAssignCategory: () {
               Navigator.pop(context);
-              _showAssignCategoryDialog(project);
+              Future.microtask(() {
+                if (mounted) _showAssignCategoryDialog(project);
+              });
             },
             onDelete: () async {
               Navigator.pop(context);
               if (project.id != null) {
-                await DatabaseService().deleteProject(project.id!);
+                await context.read<GalleryProvider>().deleteProject(project.id!);
               }
-              _loadProjects();
             },
           );
         },
@@ -204,8 +201,9 @@ class _GalleryScreenState extends State<GalleryScreen> {
     );
   }
 
-  void _showAddCategoryDialog() {
-    if (_categories.length >= 5) {
+  void _showAddCategoryDialog({PosterProject? projectToAssign}) {
+    final provider = context.read<GalleryProvider>();
+    if (provider.categories.length >= 5) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('분류는 최대 5개까지 생성할 수 있습니다.'),
@@ -273,7 +271,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                     ),
                   ),
                   onSubmitted: (_) async {
-                    await _createNewCategory(textController.text, dialogContext);
+                    await _createNewCategory(textController.text, dialogContext, projectToAssign: projectToAssign);
                   },
                 ),
                 const SizedBox(height: 24),
@@ -310,7 +308,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                       child: HoverInteraction(
                         child: GestureDetector(
                           onTap: () async {
-                            await _createNewCategory(textController.text, dialogContext);
+                            await _createNewCategory(textController.text, dialogContext, projectToAssign: projectToAssign);
                           },
                           behavior: HitTestBehavior.opaque,
                           child: Container(
@@ -344,7 +342,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
     );
   }
 
-  Future<void> _createNewCategory(String name, BuildContext dialogContext) async {
+  Future<void> _createNewCategory(String name, BuildContext dialogContext, {PosterProject? projectToAssign}) async {
     final trimmedName = name.trim();
     if (trimmedName.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -357,33 +355,14 @@ class _GalleryScreenState extends State<GalleryScreen> {
     }
 
     try {
-      final usedNumbers = _categories.map((c) => c.number).toSet();
-      int nextNumber = 1;
-      for (int i = 1; i <= 5; i++) {
-        if (!usedNumbers.contains(i)) {
-          nextNumber = i;
-          break;
-        }
+      final newCat = await context.read<GalleryProvider>().createCategory(trimmedName);
+      if (newCat != null && projectToAssign != null) {
+        await context.read<GalleryProvider>().assignProjectToCategory(projectToAssign, newCat.id);
       }
-
-      final newCat = ProjectCategory(
-        id: 0,
-        number: nextNumber,
-        name: trimmedName,
-        createdAt: DateTime.now(),
-      );
-
-      await DatabaseService().saveCategory(newCat);
 
       if (dialogContext.mounted) {
         Navigator.pop(dialogContext);
       }
-
-      setState(() {
-        _selectedCategoryId = newCat.id;
-      });
-
-      await _loadProjects();
     } catch (e, stack) {
       debugPrint('Error creating category: $e\n$stack');
       if (mounted) {
@@ -427,13 +406,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                   child: GestureDetector(
                     onTap: () async {
                       Navigator.pop(dialogContext);
-                      await DatabaseService().deleteCategory(cat.id);
-                      if (_selectedCategoryId == cat.id) {
-                        setState(() {
-                          _selectedCategoryId = null;
-                        });
-                      }
-                      _loadProjects();
+                      await context.read<GalleryProvider>().deleteCategory(cat.id);
                     },
                     child: Container(
                       width: double.infinity,
@@ -491,143 +464,165 @@ class _GalleryScreenState extends State<GalleryScreen> {
   }
 
   void _showAssignCategoryDialog(PosterProject project) {
+    final Set<int> selectedCategoryIds = project.categoryIdList.toSet();
+
     showDialog(
       context: context,
       barrierColor: Colors.black.withAlpha(204),
       builder: (dialogContext) {
-        return Dialog(
-          backgroundColor: const Color(0xFF1E1E1E),
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(28),
-          ),
-          child: Container(
-            width: 300,
-            padding: const EdgeInsets.all(24),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Text(
-                  '분류 지정',
-                  style: TextStyle(
-                    fontFamily: 'Pretendard',
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: AppTheme.uiWhite,
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return Consumer<GalleryProvider>(
+              builder: (context, provider, child) {
+                final categories = provider.categories;
+                return Dialog(
+                  backgroundColor: const Color(0xFF1E1E1E),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(28),
                   ),
-                ),
-                const SizedBox(height: 16),
-                if (_categories.isEmpty) ...[
-                  const Text(
-                    '생성된 분류가 없습니다.\n상단 + 버튼을 눌러 분류를 먼저 생성해 주세요.',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontFamily: 'Pretendard',
-                      fontSize: 14,
-                      color: Color(0xFF8E8E93),
-                      height: 1.4,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  HoverInteraction(
-                    child: GestureDetector(
-                      onTap: () => Navigator.pop(dialogContext),
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF2C2C2E),
-                          borderRadius: BorderRadius.circular(12),
+                  child: Container(
+                    width: 300,
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Text(
+                          '분류 지정',
+                          style: TextStyle(
+                            fontFamily: 'Pretendard',
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.uiWhite,
+                          ),
                         ),
-                        child: const Center(
-                          child: Text(
-                            '확인',
-                            style: TextStyle(
-                              fontFamily: 'Pretendard',
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.uiWhite,
+                        const SizedBox(height: 16),
+                        Flexible(
+                          child: SingleChildScrollView(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                if (categories.isEmpty) ...[
+                                  const Padding(
+                                    padding: EdgeInsets.symmetric(vertical: 8.0),
+                                    child: Text(
+                                      '생성된 분류가 없습니다.',
+                                      textAlign: TextAlign.center,
+                                      style: TextStyle(
+                                        fontFamily: 'Pretendard',
+                                        fontSize: 14,
+                                        color: Color(0xFF8E8E93),
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(height: 8),
+                                ],
+                                for (final cat in categories) ...[
+                                  _buildCategoryOptionItem(
+                                    category: cat,
+                                    isSelected: selectedCategoryIds.contains(cat.id),
+                                    onTap: () {
+                                      setDialogState(() {
+                                        if (selectedCategoryIds.contains(cat.id)) {
+                                          selectedCategoryIds.remove(cat.id);
+                                        } else {
+                                          selectedCategoryIds.add(cat.id);
+                                        }
+                                      });
+                                    },
+                                  ),
+                                  const SizedBox(height: 8),
+                                ],
+                                const SizedBox(height: 4),
+                                _buildAddCategoryOptionItem(
+                                  onTap: () {
+                                    Navigator.pop(dialogContext);
+                                    Future.microtask(() {
+                                      if (mounted) _showAddCategoryDialog(projectToAssign: project);
+                                    });
+                                  },
+                                ),
+                              ],
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                  ),
-                ] else ...[
-                  Flexible(
-                    child: SingleChildScrollView(
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          for (final cat in _categories) ...[
-                            _buildCategoryOptionItem(
-                              category: cat,
-                              isSelected: project.categoryId == cat.id,
-                              onTap: () async {
-                                project.categoryId = cat.id;
-                                await DatabaseService().saveProject(project);
-                                await _loadProjects();
-                                if (dialogContext.mounted) Navigator.pop(dialogContext);
-                              },
+                        const SizedBox(height: 16),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: HoverInteraction(
+                                child: GestureDetector(
+                                  onTap: () => Navigator.pop(dialogContext),
+                                  behavior: HitTestBehavior.opaque,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFF2C2C2E),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Center(
+                                      child: Text(
+                                        '취소',
+                                        style: TextStyle(
+                                          fontFamily: 'Pretendard',
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                          color: AppTheme.uiWhite,
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
-                            const SizedBox(height: 8),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: HoverInteraction(
+                                child: GestureDetector(
+                                  onTap: () async {
+                                    await provider.assignProjectToCategories(project, selectedCategoryIds.toList());
+                                    if (dialogContext.mounted) Navigator.pop(dialogContext);
+                                  },
+                                  behavior: HitTestBehavior.opaque,
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 12),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFF0F4F8),
+                                      borderRadius: BorderRadius.circular(12),
+                                    ),
+                                    child: const Center(
+                                      child: Text(
+                                        '완료',
+                                        style: TextStyle(
+                                          fontFamily: 'Pretendard',
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w600,
+                                          color: Color(0xFF1E1E1E),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                           ],
-                          if (project.categoryId != null) ...[
-                            const Divider(color: Color(0xFF333333), height: 16),
-                            _buildCategoryOptionItem(
-                              category: null,
-                              isSelected: false,
-                              onTap: () async {
-                                project.categoryId = null;
-                                await DatabaseService().saveProject(project);
-                                await _loadProjects();
-                                if (dialogContext.mounted) Navigator.pop(dialogContext);
-                              },
-                            ),
-                          ],
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 16),
-                  HoverInteraction(
-                    child: GestureDetector(
-                      onTap: () => Navigator.pop(dialogContext),
-                      child: Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF2C2C2E),
-                          borderRadius: BorderRadius.circular(12),
-                        ),
-                        child: const Center(
-                          child: Text(
-                            '취소',
-                            style: TextStyle(
-                              fontFamily: 'Pretendard',
-                              fontSize: 15,
-                              fontWeight: FontWeight.w600,
-                              color: AppTheme.uiWhite,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
+                );
+              },
+            );
+          },
         );
       },
     );
   }
 
   Widget _buildCategoryOptionItem({
-    required ProjectCategory? category,
+    required ProjectCategory category,
     required bool isSelected,
     required VoidCallback onTap,
   }) {
-    final isClear = category == null;
     return HoverInteraction(
       enableScale: false,
       child: GestureDetector(
@@ -641,57 +636,57 @@ class _GalleryScreenState extends State<GalleryScreen> {
           ),
           child: Row(
             children: [
-              if (!isClear) ...[
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    const Icon(Icons.folder_rounded, size: 24, color: Color(0xFFF0F4F8)),
-                    Positioned(
-                      top: 6,
-                      child: Text(
-                        '${category.number}',
-                        style: const TextStyle(
-                          fontFamily: 'Pretendard',
-                          fontSize: 10,
-                          fontWeight: FontWeight.w800,
-                          color: Color(0xFF1E1E1E),
-                        ),
+              Stack(
+                alignment: Alignment.center,
+                children: [
+                  const Icon(Icons.folder_rounded, size: 24, color: Color(0xFFF0F4F8)),
+                  Positioned(
+                    top: 6,
+                    child: Text(
+                      '${category.number}',
+                      style: const TextStyle(
+                        fontFamily: 'Pretendard',
+                        fontSize: 10,
+                        fontWeight: FontWeight.w800,
+                        color: Color(0xFF1E1E1E),
                       ),
                     ),
-                  ],
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Text(
-                    category.name,
-                    style: const TextStyle(
-                      fontFamily: 'Pretendard',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      color: AppTheme.uiWhite,
-                    ),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
                   ),
-                ),
-              ] else ...[
-                const Icon(Icons.block_rounded, size: 20, color: Color(0xFFFF453A)),
-                const SizedBox(width: 12),
-                const Expanded(
-                  child: Text(
-                    '분류 해제',
-                    style: TextStyle(
-                      fontFamily: 'Pretendard',
-                      fontSize: 15,
-                      fontWeight: FontWeight.w500,
-                      color: Color(0xFFFF453A),
-                    ),
+                ],
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  category.name,
+                  style: const TextStyle(
+                    fontFamily: 'Pretendard',
+                    fontSize: 15,
+                    fontWeight: FontWeight.w500,
+                    color: AppTheme.uiWhite,
                   ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                 ),
-              ],
+              ),
               if (isSelected)
                 const Icon(Icons.check_rounded, color: AppTheme.uiWhite, size: 20),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAddCategoryOptionItem({required VoidCallback onTap}) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Center(
+        child: HoverInteraction(
+          hoverScale: 1.08,
+          child: IconButton(
+            onPressed: onTap,
+            icon: const Icon(Icons.add_rounded, color: AppTheme.uiWhite, size: 28),
+            tooltip: '새 분류 추가',
           ),
         ),
       ),
@@ -1028,195 +1023,154 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final displayedProjects = _selectedCategoryId == null
-        ? _projects
-        : _projects.where((p) => p.categoryId == _selectedCategoryId).toList();
+    return Consumer<GalleryProvider>(
+      builder: (context, provider, child) {
+        final displayedProjects = provider.filteredProjects;
+        final isLoading = provider.isLoading;
 
-    return Scaffold(
-      body: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 1000),
-          child: Stack(
-            children: [
-              CustomScrollView(
-                slivers: [
-                  SliverAppBar(
-                    backgroundColor: Colors.transparent,
-                    surfaceTintColor: Colors.transparent,
-                    floating: true,
-                    toolbarHeight: 72.0,
-                    flexibleSpace: Container(
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topCenter,
-                          end: Alignment.bottomCenter,
-                          colors: [
-                            AppTheme.backgroundColor,
-                            AppTheme.backgroundColor.withAlpha(0),
-                          ],
-                        ),
-                      ),
+        return Scaffold(
+          body: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1000),
+              child: Stack(
+                children: [
+                  ScrollConfiguration(
+                    behavior: ScrollConfiguration.of(context).copyWith(
+                      scrollbars: false,
                     ),
-                    centerTitle: true,
-                    title: Container(
-                      height: 44,
-                      padding: const EdgeInsets.symmetric(horizontal: 4),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF222222),
-                        borderRadius: BorderRadius.circular(22),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          HoverInteraction(
-                            child: GestureDetector(
-                              onTap: () {
-                                setState(() {
-                                  _selectedCategoryId = null;
-                                });
-                              },
-                              behavior: HitTestBehavior.opaque,
-                              child: Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
-                                child: Icon(
-                                  Icons.dashboard_rounded,
-                                  color: _selectedCategoryId == null
-                                      ? const Color(0xFFF0F4F8)
-                                      : const Color(0xFF8E8E93),
-                                  size: 22,
-                                ),
-                              ),
-                            ),
-                          ),
-                          for (final cat in _categories)
-                            HoverInteraction(
-                              child: GestureDetector(
-                                onTap: () {
-                                  setState(() {
-                                    _selectedCategoryId = cat.id;
-                                  });
-                                },
-                                onLongPress: () => _showCategoryOptionsDialog(cat),
-                                onSecondaryTap: () => _showCategoryOptionsDialog(cat),
-                                behavior: HitTestBehavior.opaque,
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
-                                  child: Stack(
-                                    alignment: Alignment.center,
-                                    children: [
-                                      Icon(
-                                        Icons.folder_rounded,
-                                        size: 24,
-                                        color: _selectedCategoryId == cat.id
-                                            ? const Color(0xFFF0F4F8)
-                                            : const Color(0xFF8E8E93),
-                                      ),
-                                      Positioned(
-                                        top: 6,
-                                        child: Text(
-                                          '${cat.number}',
-                                          style: TextStyle(
-                                            fontFamily: 'Pretendard',
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w800,
-                                            color: _selectedCategoryId == cat.id
-                                                ? const Color(0xFF222222)
-                                                : const Color(0xFF1E1E1E),
-                                          ),
-                                        ),
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                            ),
-                          HoverInteraction(
-                            child: GestureDetector(
-                              onTap: _showAddCategoryDialog,
-                              behavior: HitTestBehavior.opaque,
-                              child: const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
-                                child: Icon(Icons.add, color: Color(0xFFF0F4F8), size: 22),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                    actions: [
-                      HoverInteraction(
-                        child: GestureDetector(
-                          onTap: () => _showInfoDialog(context), // Info button
-                          behavior: HitTestBehavior.opaque,
-                          child: const Padding(
-                            padding: EdgeInsets.all(12.0),
-                            child: Icon(Icons.info_outline_rounded, color: Color(0xFFF0F4F8), size: 24),
-                          ),
+                    child: CustomScrollView(
+                      slivers: [
+                        const SliverPadding(
+                          padding: EdgeInsets.only(top: 84),
                         ),
-                      ),
-                      const SizedBox(width: 8),
-                    ],
+                        if (isLoading || displayedProjects.isEmpty)
+                          _buildEmptyState(provider.selectedCategoryId != null)
+                        else
+                          GalleryGrid(
+                            projects: displayedProjects,
+                            onShowOptions: (project, rect) => _showProjectOptions(context, project, rect),
+                            onViewImage: _viewImage,
+                          ),
+                      ],
+                    ),
                   ),
-                  if (_isLoading || displayedProjects.isEmpty)
-                    _buildEmptyState()
-                  else
-                    _buildProjectGrid(displayedProjects),
+                  Positioned(
+                    top: 0,
+                    left: 0,
+                    right: 0,
+                    height: 90,
+                    child: IgnorePointer(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              AppTheme.backgroundColor.withAlpha(230),
+                              AppTheme.backgroundColor.withAlpha(0),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    top: 20,
+                    left: 16,
+                    right: 16,
+                    child: Row(
+                      children: [
+                        const SizedBox(width: 48),
+                        Expanded(
+                          child: Center(
+                            child: Container(
+                              height: 44,
+                              padding: const EdgeInsets.symmetric(horizontal: 4),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF222222),
+                                borderRadius: BorderRadius.circular(22),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  CategoryBar(
+                                    onAddCategory: _showAddCategoryDialog,
+                                    onCategoryOptions: _showCategoryOptionsDialog,
+                                    onInfoDialog: () => _showInfoDialog(context),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ),
+                        ),
+                        HoverInteraction(
+                          child: GestureDetector(
+                            onTap: () => _showInfoDialog(context),
+                            behavior: HitTestBehavior.opaque,
+                            child: const Padding(
+                              padding: EdgeInsets.all(8.0),
+                              child: Icon(Icons.info_outline_rounded, color: Color(0xFFF0F4F8), size: 24),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 0,
+                    left: 0,
+                    right: 0,
+                    height: 120,
+                    child: IgnorePointer(
+                      child: Container(
+                        decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.bottomCenter,
+                            end: Alignment.topCenter,
+                            colors: [
+                              AppTheme.backgroundColor.withAlpha(230),
+                              AppTheme.backgroundColor.withAlpha(0),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  Positioned(
+                    bottom: 32,
+                    left: 0,
+                    right: 0,
+                    child: Center(
+                      child: HoverInteraction(
+                        child: GestureDetector(
+                          onTap: _pickImage,
+                          behavior: HitTestBehavior.opaque,
+                          child: Container(
+                            width: 96,
+                            height: 48,
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF222222),
+                              borderRadius: BorderRadius.circular(24),
+                            ),
+                            child: const Center(
+                              child: Icon(Icons.add, color: Color(0xFFF0F4F8), size: 28),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  LoadingOverlay(isLoading: isLoading),
                 ],
               ),
-              Positioned(
-                bottom: 0,
-                left: 0,
-                right: 0,
-                height: 120,
-                child: IgnorePointer(
-                  child: Container(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.bottomCenter,
-                        end: Alignment.topCenter,
-                        colors: [
-                          AppTheme.backgroundColor.withAlpha(230),
-                          AppTheme.backgroundColor.withAlpha(0),
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              Positioned(
-                bottom: 32,
-                left: 0,
-                right: 0,
-                child: Center(
-                  child: HoverInteraction(
-                    child: GestureDetector(
-                      onTap: _pickImage,
-                      behavior: HitTestBehavior.opaque,
-                      child: Container(
-                        width: 96,
-                        height: 48,
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF222222),
-                          borderRadius: BorderRadius.circular(24),
-                        ),
-                        child: const Center(
-                          child: Icon(Icons.add, color: Color(0xFFF0F4F8), size: 28),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
-              LoadingOverlay(isLoading: _isLoading),
-            ],
+            ),
           ),
-        ),
-      ),
+        );
+      },
     );
   }
 
-  Widget _buildEmptyState() {
-    final isCategorySelected = _selectedCategoryId != null;
+  Widget _buildEmptyState(bool isCategorySelected) {
     return SliverFillRemaining(
       hasScrollBody: false,
       child: Center(
@@ -1253,384 +1207,4 @@ class _GalleryScreenState extends State<GalleryScreen> {
     );
   }
 
-  Widget _buildProjectGrid(List<PosterProject> projects) {
-    return SliverPadding(
-      padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
-      sliver: SliverMasonryGrid.extent(
-        maxCrossAxisExtent: 250,
-        crossAxisSpacing: 16,
-        mainAxisSpacing: 20,
-        childCount: projects.length,
-        itemBuilder: (context, index) {
-          final project = projects[index];
-          return Builder(
-            builder: (itemContext) {
-              return HoverInteraction(
-                child: Hero(
-                  tag: project.id ?? project.hashCode,
-                  child: GestureDetector(
-                    onTap: () => _viewImage(project),
-                    onLongPress: () {
-                      final box = itemContext.findRenderObject() as RenderBox;
-                      final rect = box.localToGlobal(Offset.zero) & box.size;
-                      _showProjectOptions(context, project, rect);
-                    },
-                    onSecondaryTap: () {
-                      final box = itemContext.findRenderObject() as RenderBox;
-                      final rect = box.localToGlobal(Offset.zero) & box.size;
-                      _showProjectOptions(context, project, rect);
-                    },
-                    child: Container(
-                      decoration: BoxDecoration(
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withAlpha(20),
-                            blurRadius: 15,
-                            offset: const Offset(0, 8),
-                          ),
-                        ],
-                      ),
-                      child: project.thumbnailBytes != null
-                          ? Image.memory(
-                              project.thumbnailBytes!,
-                              fit: BoxFit.cover,
-                            )
-                          : (kIsWeb
-                              ? (project.webExportedImageBytes != null
-                                  ? Image.memory(
-                                      project.webExportedImageBytes!,
-                                      cacheWidth: 300,
-                                    )
-                                  : Image.network(
-                                      project.originalImagePath,
-                                      cacheWidth: 300,
-                                    ))
-                              : Image.file(
-                                  File(
-                                    project.exportedImagePath ??
-                                        project.originalImagePath,
-                                  ),
-                                  cacheWidth: 300,
-                                )),
-                    ),
-                  ),
-                ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-}
-
-class _ProjectContextMenu extends StatefulWidget {
-  final PosterProject project;
-  final Rect itemRect;
-  final VoidCallback onAssignCategory;
-  final VoidCallback onDelete;
-
-  const _ProjectContextMenu({
-    required this.project,
-    required this.itemRect,
-    required this.onAssignCategory,
-    required this.onDelete,
-  });
-
-  @override
-  State<_ProjectContextMenu> createState() => _ProjectContextMenuState();
-}
-
-class _ProjectContextMenuState extends State<_ProjectContextMenu> with SingleTickerProviderStateMixin {
-  late AnimationController _controller;
-  late Animation<double> _scaleAnimation;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller = AnimationController(vsync: this, duration: const Duration(milliseconds: 350));
-    _scaleAnimation = Tween<double>(begin: 1.0, end: 1.05).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeOutExpo),
-    );
-    _controller.forward();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final screenSize = MediaQuery.of(context).size;
-    const pillHeight = 60.0;
-    const spacing = 20.0;
-    
-    final scaledHeight = widget.itemRect.height * 1.05;
-    final heightDiff = (scaledHeight - widget.itemRect.height) / 2;
-    
-    final spaceBelow = screenSize.height - widget.itemRect.bottom - heightDiff;
-    final showBelow = spaceBelow >= (pillHeight + spacing);
-    
-    double pillTop;
-    if (showBelow) {
-      pillTop = widget.itemRect.bottom + heightDiff + spacing;
-    } else {
-      pillTop = widget.itemRect.top - heightDiff - spacing - pillHeight;
-    }
-
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Dismiss background
-          GestureDetector(
-            onTap: () => Navigator.pop(context),
-            child: Container(color: Colors.transparent),
-          ),
-          Positioned(
-            top: widget.itemRect.top,
-            left: widget.itemRect.left,
-            width: widget.itemRect.width,
-            height: widget.itemRect.height,
-            child: Hero(
-              tag: widget.project.id ?? widget.project.hashCode,
-              child: AnimatedBuilder(
-                animation: _scaleAnimation,
-                builder: (context, child) {
-                  return Transform.scale(
-                    scale: _scaleAnimation.value,
-                    child: child,
-                  );
-                },
-                child: GestureDetector(
-                  onTap: () => Navigator.pop(context),
-                  child: Container(
-                    decoration: BoxDecoration(
-                      boxShadow: [
-                        BoxShadow(
-                          color: Colors.black.withAlpha(128),
-                          blurRadius: 20,
-                          offset: const Offset(0, 10),
-                        ),
-                      ],
-                    ),
-                    child: widget.project.thumbnailBytes != null
-                        ? Image.memory(
-                            widget.project.thumbnailBytes!,
-                            fit: BoxFit.cover,
-                          )
-                        : (kIsWeb 
-                            ? (widget.project.webExportedImageBytes != null
-                                ? Image.memory(
-                                    widget.project.webExportedImageBytes!,
-                                    fit: BoxFit.cover,
-                                    cacheWidth: 300,
-                                  )
-                                : Image.network(
-                                    widget.project.exportedImagePath ?? widget.project.originalImagePath,
-                                    fit: BoxFit.cover,
-                                    cacheWidth: 300,
-                                  ))
-                            : Image.file(
-                                File(widget.project.exportedImagePath ?? widget.project.originalImagePath),
-                                fit: BoxFit.cover,
-                                cacheWidth: 300,
-                              )),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          Positioned(
-            top: pillTop,
-            left: widget.itemRect.center.dx,
-            child: FractionalTranslation(
-              translation: const Offset(-0.5, 0),
-              child: FadeTransition(
-                opacity: _controller,
-                child: ScaleTransition(
-                  scale: Tween<double>(begin: 0.8, end: 1.0).animate(
-                    CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
-                  ),
-                  child: Material(
-                    color: const Color(0xFFF0F4F8),
-                    borderRadius: BorderRadius.circular(30),
-                    elevation: 8,
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                        HoverInteraction(
-                          child: IconButton(
-                            icon: const Icon(Icons.arrow_downward_rounded, color: Colors.black87),
-                            onPressed: () async {
-                              Navigator.pop(context);
-                              final path = widget.project.exportedImagePath ?? widget.project.originalImagePath;
-                              
-                              Uint8List? webBytes = widget.project.webExportedImageBytes;
-                              if (kIsWeb && webBytes == null && widget.project.id != null) {
-                                webBytes = await DatabaseService().getOriginalImageBytes(widget.project.id!);
-                              }
-                              
-                              final ext = p.extension(path).isEmpty ? 'png' : p.extension(path).replaceAll('.', '');
-                              final customName = FileManagerService.generateFileName(widget.project.exif, ext);
-                              FileManagerService.shareOrSaveImage(
-                                path,
-                                !kIsWeb && Platform.isWindows,
-                                saveToDevice: true,
-                                webBytes: webBytes,
-                                customFileName: customName,
-                              );
-                            },
-                          ),
-                        ),
-                        HoverInteraction(
-                          child: IconButton(
-                            icon: const Icon(Icons.folder_outlined, color: Colors.black87),
-                            tooltip: '분류',
-                            onPressed: widget.onAssignCategory,
-                          ),
-                        ),
-                        if (!kIsWeb && !Platform.isWindows)
-                          HoverInteraction(
-                            child: IconButton(
-                              icon: const Icon(Icons.share_rounded, color: Colors.black87),
-                              onPressed: () {
-                                Navigator.pop(context);
-                                final path = widget.project.exportedImagePath ?? widget.project.originalImagePath;
-                                FileManagerService.shareOrSaveImage(path, false);
-                              },
-                            ),
-                          ),
-                        HoverInteraction(
-                          child: IconButton(
-                            icon: const Icon(Icons.delete_outline_rounded, color: Colors.red),
-                            onPressed: widget.onDelete,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ),
-          ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _ImageViewerDialog extends StatefulWidget {
-  final PosterProject project;
-
-  const _ImageViewerDialog({required this.project});
-
-  @override
-  State<_ImageViewerDialog> createState() => _ImageViewerDialogState();
-}
-
-class _ImageViewerDialogState extends State<_ImageViewerDialog> {
-  late final Future<Uint8List?> _imageBytesFuture;
-
-  @override
-  void initState() {
-    super.initState();
-    _imageBytesFuture = _loadImageBytes();
-  }
-
-  @override
-  void dispose() {
-    // Explicitly clear the image cache to free up memory from the high-res original image
-    PaintingBinding.instance.imageCache.clear();
-    PaintingBinding.instance.imageCache.clearLiveImages();
-    super.dispose();
-  }
-
-  Future<Uint8List?> _loadImageBytes() async {
-    // Artificial delay to show the premium loading indicator
-    await Future.delayed(const Duration(milliseconds: 400));
-
-    if (kIsWeb) {
-      if (widget.project.id != null) {
-        final bytes = await DatabaseService().getOriginalImageBytes(widget.project.id!);
-        if (bytes != null) return bytes;
-      }
-      return widget.project.webExportedImageBytes;
-    } else {
-      final path = widget.project.exportedImagePath ?? widget.project.originalImagePath;
-      final file = File(path);
-      if (await file.exists()) {
-        return await file.readAsBytes();
-      }
-    }
-    return null;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.transparent,
-      insetPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => Navigator.pop(context),
-        child: Center(
-          child: Container(
-            constraints: const BoxConstraints(maxHeight: 800),
-            child: FutureBuilder<Uint8List?>(
-              future: _imageBytesFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return const SizedBox(
-                    height: 800,
-                    width: double.infinity,
-                    child: LoadingOverlay(
-                      isLoading: true,
-                      text: '로딩중...',
-                      backgroundColor: Colors.transparent,
-                    ),
-                  );
-                }
-
-                final bytes = snapshot.data;
-                if (bytes != null) {
-                  return InteractiveViewer(
-                    clipBehavior: Clip.none,
-                    minScale: 0.5,
-                    maxScale: 5.0,
-                    child: Image.memory(
-                      bytes,
-                      fit: BoxFit.contain,
-                    ),
-                  );
-                }
-
-                // Fallback
-                return InteractiveViewer(
-                  clipBehavior: Clip.none,
-                  minScale: 0.5,
-                  maxScale: 5.0,
-                  child: kIsWeb
-                      ? Image.network(
-                          widget.project.originalImagePath,
-                          fit: BoxFit.contain,
-                        )
-                      : Image.file(
-                          File(widget.project.exportedImagePath ?? widget.project.originalImagePath),
-                          fit: BoxFit.contain,
-                        ),
-                );
-              },
-            ),
-          ),
-        ),
-      ),
-    );
-  }
 }

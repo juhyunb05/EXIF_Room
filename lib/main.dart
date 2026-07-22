@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
+import 'package:provider/provider.dart';
+import 'core/providers/gallery_provider.dart';
 import 'core/services/database_service.dart';
 import 'features/gallery/gallery_screen.dart';
 import 'theme/app_theme.dart';
@@ -44,20 +46,27 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Exif Room',
-      debugShowCheckedModeBanner: false,
-      theme: AppTheme.lightTheme,
-      localizationsDelegates: const [
-        GlobalMaterialLocalizations.delegate,
-        GlobalWidgetsLocalizations.delegate,
-        GlobalCupertinoLocalizations.delegate,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (_) => GalleryProvider()..loadProjects()),
       ],
-      supportedLocales: const [
-        Locale('ko', 'KR'),
-      ],
-      locale: const Locale('ko', 'KR'),
-      home: const GalleryScreen(),
+      child: ExcludeSemantics(
+        child: MaterialApp(
+          title: 'Exif Room',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.lightTheme,
+          localizationsDelegates: const [
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+          supportedLocales: const [
+            Locale('ko', 'KR'),
+          ],
+          locale: const Locale('ko', 'KR'),
+          home: const GalleryScreen(),
+        ),
+      ),
     );
   }
 }
