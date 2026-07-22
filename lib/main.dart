@@ -7,12 +7,17 @@ import 'theme/app_theme.dart';
 
 import 'dart:io';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 void main() async {
   try {
     WidgetsFlutterBinding.ensureInitialized();
 
-    // Initialize Isar
+    if (kIsWeb) {
+      BrowserContextMenu.disableContextMenu();
+    }
+
+    // Initialize Database
     await DatabaseService().init();
 
     runApp(const MyApp());

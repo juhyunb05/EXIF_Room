@@ -6,9 +6,12 @@ import 'package:path_provider/path_provider.dart';
 import '../models/exif_data.dart';
 import '../models/poster_project.dart';
 import '../models/poster_project_image.dart';
+import '../models/project_category.dart';
 
 class DatabaseService {
   static const String _boxName = 'posterProjectsBox_v2';
+  static const String _categoriesBoxName = 'projectCategoriesBox';
+
   late Box<PosterProject> box;
 
   static final DatabaseService _instance = DatabaseService._internal();
@@ -35,14 +38,67 @@ class DatabaseService {
       Hive.registerAdapter(PosterProjectImageAdapter());
     }
 
+    if (!Hive.isAdapterRegistered(3)) {
+      Hive.registerAdapter(ProjectCategoryAdapter());
+    }
+
     box = await Hive.openBox<PosterProject>(_boxName);
+    await _getCategoriesBox();
+  }
+
+  Future<Box<ProjectCategory>> _getCategoriesBox() async {
+    if (!Hive.isAdapterRegistered(3)) {
+      Hive.registerAdapter(ProjectCategoryAdapter());
+    }
+    if (Hive.isBoxOpen(_categoriesBoxName)) {
+      return Hive.box<ProjectCategory>(_categoriesBoxName);
+    }
+    return await Hive.openBox<ProjectCategory>(_categoriesBoxName);
   }
 
   Future<List<PosterProject>> getAllProjects() async {
+    if (!Hive.isBoxOpen(_boxName)) {
+      box = await Hive.openBox<PosterProject>(_boxName);
+    }
     return box.values.toList();
   }
 
+  Future<List<ProjectCategory>> getAllCategories() async {
+    final cBox = await _getCategoriesBox();
+    final list = cBox.values.toList();
+    list.sort((a, b) => a.number.compareTo(b.number));
+    return list;
+  }
+
+  Future<void> saveCategory(ProjectCategory category) async {
+    final cBox = await _getCategoriesBox();
+    if (category.isInBox) {
+      await category.save();
+    } else {
+      final id = await cBox.add(category);
+      category.id = id;
+      await category.save();
+    }
+  }
+
+  Future<void> deleteCategory(int id) async {
+    final cBox = await _getCategoriesBox();
+    await cBox.delete(id);
+    if (!Hive.isBoxOpen(_boxName)) {
+      box = await Hive.openBox<PosterProject>(_boxName);
+    }
+    for (final project in box.values) {
+      if (project.categoryId == id) {
+        project.categoryId = null;
+        await project.save();
+      }
+    }
+  }
+
   Future<void> saveProject(PosterProject project, {Uint8List? originalImageBytes}) async {
+    if (!Hive.isBoxOpen(_boxName)) {
+      box = await Hive.openBox<PosterProject>(_boxName);
+    }
     if (project.isInBox) {
       await project.save();
     } else {
@@ -65,6 +121,9 @@ class DatabaseService {
   }
 
   Future<void> deleteProject(int id) async {
+    if (!Hive.isBoxOpen(_boxName)) {
+      box = await Hive.openBox<PosterProject>(_boxName);
+    }
     final project = box.values.firstWhere((p) => p.id == id);
 
     // 네이티브 플랫폼인 경우 파일 시스템에서 실제 이미지 파일도 함께 삭제하여 용량 낭비를 막음
@@ -103,7 +162,12 @@ class DatabaseService {
   }
 
   Future<void> clearAllData() async {
+    if (!Hive.isBoxOpen(_boxName)) {
+      box = await Hive.openBox<PosterProject>(_boxName);
+    }
     await box.clear();
+    final cBox = await _getCategoriesBox();
+    await cBox.clear();
     try {
       final imageBox = await Hive.openBox<PosterProjectImage>('posterProjectImagesBox');
       await imageBox.clear();

@@ -11,6 +11,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/models/poster_project.dart';
+import '../../core/models/project_category.dart';
 import '../../core/services/database_service.dart';
 import '../../widgets/loading_overlay.dart';
 import '../../core/services/exif_service.dart';
@@ -32,6 +33,8 @@ class GalleryScreen extends StatefulWidget {
 
 class _GalleryScreenState extends State<GalleryScreen> {
   List<PosterProject> _projects = [];
+  List<ProjectCategory> _categories = [];
+  int? _selectedCategoryId;
   bool _isLoading = true;
   String _currentVersion = 'v0.0.0';
 
@@ -65,8 +68,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   Future<void> _loadProjects() async {
     final projects = await DatabaseService().getAllProjects();
+    final categories = await DatabaseService().getAllCategories();
     setState(() {
       _projects = projects..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      _categories = categories;
       _isLoading = false;
     });
   }
@@ -176,6 +181,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
           return _ProjectContextMenu(
             project: project,
             itemRect: itemRect,
+            onAssignCategory: () {
+              Navigator.pop(context);
+              _showAssignCategoryDialog(project);
+            },
             onDelete: () async {
               Navigator.pop(context);
               if (project.id != null) {
@@ -191,6 +200,500 @@ class _GalleryScreenState extends State<GalleryScreen> {
             child: child,
           );
         },
+      ),
+    );
+  }
+
+  void _showAddCategoryDialog() {
+    if (_categories.length >= 5) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('분류는 최대 5개까지 생성할 수 있습니다.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    final textController = TextEditingController();
+
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withAlpha(204),
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+          ),
+          child: Container(
+            width: 320,
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Center(
+                  child: Text(
+                    '새 분류 추가',
+                    style: TextStyle(
+                      fontFamily: 'Pretendard',
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: AppTheme.uiWhite,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: textController,
+                  autofocus: true,
+                  style: const TextStyle(
+                    fontFamily: 'Pretendard',
+                    fontSize: 15,
+                    color: AppTheme.uiWhite,
+                  ),
+                  decoration: InputDecoration(
+                    hintText: '분류 이름을 입력하세요',
+                    hintStyle: const TextStyle(
+                      fontFamily: 'Pretendard',
+                      fontSize: 14,
+                      color: Color(0xFF8E8E93),
+                    ),
+                    filled: true,
+                    fillColor: const Color(0xFF2C2C2E),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(14),
+                      borderSide: const BorderSide(color: Color(0xFF8E8E93), width: 1),
+                    ),
+                  ),
+                  onSubmitted: (_) async {
+                    await _createNewCategory(textController.text, dialogContext);
+                  },
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: HoverInteraction(
+                        child: GestureDetector(
+                          onTap: () => Navigator.pop(dialogContext),
+                          behavior: HitTestBehavior.opaque,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFF2C2C2E),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Center(
+                              child: Text(
+                                '취소',
+                                style: TextStyle(
+                                  fontFamily: 'Pretendard',
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: AppTheme.uiWhite,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: HoverInteraction(
+                        child: GestureDetector(
+                          onTap: () async {
+                            await _createNewCategory(textController.text, dialogContext);
+                          },
+                          behavior: HitTestBehavior.opaque,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFF0F4F8),
+                              borderRadius: BorderRadius.circular(12),
+                            ),
+                            child: const Center(
+                              child: Text(
+                                '만들기',
+                                style: TextStyle(
+                                  fontFamily: 'Pretendard',
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF1E1E1E),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _createNewCategory(String name, BuildContext dialogContext) async {
+    final trimmedName = name.trim();
+    if (trimmedName.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('분류 이름을 입력해 주세요.'),
+          duration: Duration(seconds: 2),
+        ),
+      );
+      return;
+    }
+
+    try {
+      final usedNumbers = _categories.map((c) => c.number).toSet();
+      int nextNumber = 1;
+      for (int i = 1; i <= 5; i++) {
+        if (!usedNumbers.contains(i)) {
+          nextNumber = i;
+          break;
+        }
+      }
+
+      final newCat = ProjectCategory(
+        id: 0,
+        number: nextNumber,
+        name: trimmedName,
+        createdAt: DateTime.now(),
+      );
+
+      await DatabaseService().saveCategory(newCat);
+
+      if (dialogContext.mounted) {
+        Navigator.pop(dialogContext);
+      }
+
+      setState(() {
+        _selectedCategoryId = newCat.id;
+      });
+
+      await _loadProjects();
+    } catch (e, stack) {
+      debugPrint('Error creating category: $e\n$stack');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('분류 생성 중 오류가 발생했습니다: $e')),
+        );
+      }
+    }
+  }
+
+  void _showCategoryOptionsDialog(ProjectCategory cat) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withAlpha(204),
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+          ),
+          child: Container(
+            width: 280,
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '분류 ${cat.number}: ${cat.name}',
+                  style: const TextStyle(
+                    fontFamily: 'Pretendard',
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.uiWhite,
+                  ),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                ),
+                const SizedBox(height: 20),
+                HoverInteraction(
+                  enableScale: false,
+                  child: GestureDetector(
+                    onTap: () async {
+                      Navigator.pop(dialogContext);
+                      await DatabaseService().deleteCategory(cat.id);
+                      if (_selectedCategoryId == cat.id) {
+                        setState(() {
+                          _selectedCategoryId = null;
+                        });
+                      }
+                      _loadProjects();
+                    },
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF3D0C0C),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          '분류 삭제',
+                          style: TextStyle(
+                            fontFamily: 'Pretendard',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: Color(0xFFFF453A),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                HoverInteraction(
+                  enableScale: false,
+                  child: GestureDetector(
+                    onTap: () => Navigator.pop(dialogContext),
+                    child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF2C2C2E),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Center(
+                        child: Text(
+                          '취소',
+                          style: TextStyle(
+                            fontFamily: 'Pretendard',
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: AppTheme.uiWhite,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  void _showAssignCategoryDialog(PosterProject project) {
+    showDialog(
+      context: context,
+      barrierColor: Colors.black.withAlpha(204),
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: const Color(0xFF1E1E1E),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+          ),
+          child: Container(
+            width: 300,
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  '분류 지정',
+                  style: TextStyle(
+                    fontFamily: 'Pretendard',
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: AppTheme.uiWhite,
+                  ),
+                ),
+                const SizedBox(height: 16),
+                if (_categories.isEmpty) ...[
+                  const Text(
+                    '생성된 분류가 없습니다.\n상단 + 버튼을 눌러 분류를 먼저 생성해 주세요.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontFamily: 'Pretendard',
+                      fontSize: 14,
+                      color: Color(0xFF8E8E93),
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  HoverInteraction(
+                    child: GestureDetector(
+                      onTap: () => Navigator.pop(dialogContext),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2C2C2E),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Center(
+                          child: Text(
+                            '확인',
+                            style: TextStyle(
+                              fontFamily: 'Pretendard',
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.uiWhite,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ] else ...[
+                  Flexible(
+                    child: SingleChildScrollView(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          for (final cat in _categories) ...[
+                            _buildCategoryOptionItem(
+                              category: cat,
+                              isSelected: project.categoryId == cat.id,
+                              onTap: () async {
+                                project.categoryId = cat.id;
+                                await DatabaseService().saveProject(project);
+                                await _loadProjects();
+                                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                              },
+                            ),
+                            const SizedBox(height: 8),
+                          ],
+                          if (project.categoryId != null) ...[
+                            const Divider(color: Color(0xFF333333), height: 16),
+                            _buildCategoryOptionItem(
+                              category: null,
+                              isSelected: false,
+                              onTap: () async {
+                                project.categoryId = null;
+                                await DatabaseService().saveProject(project);
+                                await _loadProjects();
+                                if (dialogContext.mounted) Navigator.pop(dialogContext);
+                              },
+                            ),
+                          ],
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  HoverInteraction(
+                    child: GestureDetector(
+                      onTap: () => Navigator.pop(dialogContext),
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2C2C2E),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Center(
+                          child: Text(
+                            '취소',
+                            style: TextStyle(
+                              fontFamily: 'Pretendard',
+                              fontSize: 15,
+                              fontWeight: FontWeight.w600,
+                              color: AppTheme.uiWhite,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCategoryOptionItem({
+    required ProjectCategory? category,
+    required bool isSelected,
+    required VoidCallback onTap,
+  }) {
+    final isClear = category == null;
+    return HoverInteraction(
+      enableScale: false,
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFF3A3A3C) : const Color(0xFF2C2C2E),
+            borderRadius: BorderRadius.circular(14),
+            border: isSelected ? Border.all(color: AppTheme.uiWhite.withAlpha(128)) : null,
+          ),
+          child: Row(
+            children: [
+              if (!isClear) ...[
+                Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    const Icon(Icons.folder_rounded, size: 24, color: Color(0xFFF0F4F8)),
+                    Positioned(
+                      top: 6,
+                      child: Text(
+                        '${category.number}',
+                        style: const TextStyle(
+                          fontFamily: 'Pretendard',
+                          fontSize: 10,
+                          fontWeight: FontWeight.w800,
+                          color: Color(0xFF1E1E1E),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    category.name,
+                    style: const TextStyle(
+                      fontFamily: 'Pretendard',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: AppTheme.uiWhite,
+                    ),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              ] else ...[
+                const Icon(Icons.block_rounded, size: 20, color: Color(0xFFFF453A)),
+                const SizedBox(width: 12),
+                const Expanded(
+                  child: Text(
+                    '분류 해제',
+                    style: TextStyle(
+                      fontFamily: 'Pretendard',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w500,
+                      color: Color(0xFFFF453A),
+                    ),
+                  ),
+                ),
+              ],
+              if (isSelected)
+                const Icon(Icons.check_rounded, color: AppTheme.uiWhite, size: 20),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -525,6 +1028,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final displayedProjects = _selectedCategoryId == null
+        ? _projects
+        : _projects.where((p) => p.categoryId == _selectedCategoryId).toList();
+
     return Scaffold(
       body: Center(
         child: ConstrainedBox(
@@ -563,20 +1070,72 @@ class _GalleryScreenState extends State<GalleryScreen> {
                         children: [
                           HoverInteraction(
                             child: GestureDetector(
-                              onTap: () {}, // Current gallery
+                              onTap: () {
+                                setState(() {
+                                  _selectedCategoryId = null;
+                                });
+                              },
                               behavior: HitTestBehavior.opaque,
-                              child: const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
-                                child: Icon(Icons.dashboard_rounded, color: Color(0xFFF0F4F8), size: 22),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
+                                child: Icon(
+                                  Icons.dashboard_rounded,
+                                  color: _selectedCategoryId == null
+                                      ? const Color(0xFFF0F4F8)
+                                      : const Color(0xFF8E8E93),
+                                  size: 22,
+                                ),
                               ),
                             ),
                           ),
+                          for (final cat in _categories)
+                            HoverInteraction(
+                              child: GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _selectedCategoryId = cat.id;
+                                  });
+                                },
+                                onLongPress: () => _showCategoryOptionsDialog(cat),
+                                onSecondaryTap: () => _showCategoryOptionsDialog(cat),
+                                behavior: HitTestBehavior.opaque,
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 8.0),
+                                  child: Stack(
+                                    alignment: Alignment.center,
+                                    children: [
+                                      Icon(
+                                        Icons.folder_rounded,
+                                        size: 24,
+                                        color: _selectedCategoryId == cat.id
+                                            ? const Color(0xFFF0F4F8)
+                                            : const Color(0xFF8E8E93),
+                                      ),
+                                      Positioned(
+                                        top: 6,
+                                        child: Text(
+                                          '${cat.number}',
+                                          style: TextStyle(
+                                            fontFamily: 'Pretendard',
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w800,
+                                            color: _selectedCategoryId == cat.id
+                                                ? const Color(0xFF222222)
+                                                : const Color(0xFF1E1E1E),
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
                           HoverInteraction(
                             child: GestureDetector(
-                              onTap: () {}, // Add category
+                              onTap: _showAddCategoryDialog,
                               behavior: HitTestBehavior.opaque,
                               child: const Padding(
-                                padding: EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0),
+                                padding: EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
                                 child: Icon(Icons.add, color: Color(0xFFF0F4F8), size: 22),
                               ),
                             ),
@@ -598,10 +1157,10 @@ class _GalleryScreenState extends State<GalleryScreen> {
                       const SizedBox(width: 8),
                     ],
                   ),
-                  if (_isLoading || _projects.isEmpty)
+                  if (_isLoading || displayedProjects.isEmpty)
                     _buildEmptyState()
                   else
-                    _buildProjectGrid(),
+                    _buildProjectGrid(displayedProjects),
                 ],
               ),
               Positioned(
@@ -657,6 +1216,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
   }
 
   Widget _buildEmptyState() {
+    final isCategorySelected = _selectedCategoryId != null;
     return SliverFillRemaining(
       hasScrollBody: false,
       child: Center(
@@ -664,20 +1224,22 @@ class _GalleryScreenState extends State<GalleryScreen> {
           padding: const EdgeInsets.only(bottom: 80.0),
           child: Column(
             mainAxisAlignment: MainAxisAlignment.center,
-            children: const [
+            children: [
               Text(
-                '현재 갤러리가 비어있습니다.',
-                style: TextStyle(
+                isCategorySelected ? '이 분류에 지정된 사진이 없습니다.' : '현재 갤러리가 비어있습니다.',
+                style: const TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 16,
                   fontWeight: FontWeight.w400,
                   color: Color(0xFFF0F4F8),
                 ),
               ),
-              SizedBox(height: 8),
+              const SizedBox(height: 8),
               Text(
-                '사진을 생성하려면 하단의 + 버튼을 눌러주세요.',
-                style: TextStyle(
+                isCategorySelected
+                    ? '사진을 길게 누르거나 우클릭하면 나타나는 메뉴에서 분류를 지정할 수 있습니다.'
+                    : '사진을 생성하려면 하단의 + 버튼을 눌러주세요.',
+                style: const TextStyle(
                   fontFamily: 'Pretendard',
                   fontSize: 16,
                   fontWeight: FontWeight.w400,
@@ -691,16 +1253,16 @@ class _GalleryScreenState extends State<GalleryScreen> {
     );
   }
 
-  Widget _buildProjectGrid() {
+  Widget _buildProjectGrid(List<PosterProject> projects) {
     return SliverPadding(
       padding: const EdgeInsets.fromLTRB(20, 0, 20, 100),
       sliver: SliverMasonryGrid.extent(
         maxCrossAxisExtent: 250,
         crossAxisSpacing: 16,
         mainAxisSpacing: 20,
-        childCount: _projects.length,
+        childCount: projects.length,
         itemBuilder: (context, index) {
-          final project = _projects[index];
+          final project = projects[index];
           return Builder(
             builder: (itemContext) {
               return HoverInteraction(
@@ -765,11 +1327,13 @@ class _GalleryScreenState extends State<GalleryScreen> {
 class _ProjectContextMenu extends StatefulWidget {
   final PosterProject project;
   final Rect itemRect;
+  final VoidCallback onAssignCategory;
   final VoidCallback onDelete;
 
   const _ProjectContextMenu({
     required this.project,
     required this.itemRect,
+    required this.onAssignCategory,
     required this.onDelete,
   });
 
@@ -922,6 +1486,13 @@ class _ProjectContextMenuState extends State<_ProjectContextMenu> with SingleTic
                                 customFileName: customName,
                               );
                             },
+                          ),
+                        ),
+                        HoverInteraction(
+                          child: IconButton(
+                            icon: const Icon(Icons.folder_outlined, color: Colors.black87),
+                            tooltip: '분류',
+                            onPressed: widget.onAssignCategory,
                           ),
                         ),
                         if (!kIsWeb && !Platform.isWindows)

@@ -25,13 +25,14 @@ class PosterProjectAdapter extends TypeAdapter<PosterProject> {
       exported: fields[5] as bool,
       webExportedImageBytes: fields[6] as Uint8List?,
       thumbnailBytes: fields[7] as Uint8List?,
+      categoryId: fields[8] as int?,
     );
   }
 
   @override
   void write(BinaryWriter writer, PosterProject obj) {
     writer
-      ..writeByte(8)
+      ..writeByte(9)
       ..writeByte(0)
       ..write(obj.id)
       ..writeByte(1)
@@ -47,7 +48,9 @@ class PosterProjectAdapter extends TypeAdapter<PosterProject> {
       ..writeByte(6)
       ..write(obj.webExportedImageBytes)
       ..writeByte(7)
-      ..write(obj.thumbnailBytes);
+      ..write(obj.thumbnailBytes)
+      ..writeByte(8)
+      ..write(obj.categoryId);
   }
 
   @override

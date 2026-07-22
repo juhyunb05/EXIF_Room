@@ -5,13 +5,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
 import 'package:intl/intl.dart';
 
+import 'dart:math' as math;
 import '../core/models/exif_data.dart';
+import '../core/models/edit_data.dart';
 import 'loading_overlay.dart';
 
 class PosterCanvas extends StatefulWidget {
   final String imagePath;
   final Uint8List? webImageBytes;
   final ExifData exifData;
+  final EditData? editData;
   final int imageRotation;
   final bool isPreview;
   final Function(bool)? onImageLoaded;
@@ -21,6 +24,7 @@ class PosterCanvas extends StatefulWidget {
     required this.imagePath,
     this.webImageBytes,
     required this.exifData,
+    this.editData,
     this.imageRotation = 0,
     this.isPreview = false,
     this.onImageLoaded,
@@ -32,6 +36,51 @@ class PosterCanvas extends StatefulWidget {
 
 class _PosterCanvasState extends State<PosterCanvas> {
   bool _isLoaded = false;
+  double? _imgAspectRatio;
+
+  @override
+  void initState() {
+    super.initState();
+    _resolveImageAspectRatio();
+  }
+
+  @override
+  void didUpdateWidget(PosterCanvas oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.imagePath != widget.imagePath || oldWidget.webImageBytes != widget.webImageBytes) {
+      _resolveImageAspectRatio();
+    }
+  }
+
+  ImageProvider _getImageProvider() {
+    if (widget.webImageBytes != null) {
+      return MemoryImage(widget.webImageBytes!);
+    } else if (kIsWeb) {
+      return NetworkImage(widget.imagePath);
+    } else {
+      return FileImage(File(widget.imagePath));
+    }
+  }
+
+  void _resolveImageAspectRatio() {
+    final provider = _getImageProvider();
+    provider.resolve(const ImageConfiguration()).addListener(
+      ImageStreamListener((ImageInfo info, bool _) {
+        if (mounted) {
+          final w = info.image.width.toDouble();
+          final h = info.image.height.toDouble();
+          if (w > 0 && h > 0) {
+            final aspect = w / h;
+            if (_imgAspectRatio != aspect) {
+              setState(() {
+                _imgAspectRatio = aspect;
+              });
+            }
+          }
+        }
+      }),
+    );
+  }
 
   String? _getBrandLogoPath(String? make) {
     if (make == null) return null;
@@ -71,8 +120,114 @@ class _PosterCanvasState extends State<PosterCanvas> {
     return child;
   }
 
+  Widget _buildCroppedPhotoWidget(ImageProvider provider) {
+    final edit = widget.editData;
+    final imgAspect = _imgAspectRatio ?? (3.0 / 2.0);
+    final targetWidth = (widget.imageRotation % 2 != 0) ? 1600.0 : 2400.0;
+
+    if (edit == null || edit.isIdentity) {
+      final frameHeight = targetWidth / imgAspect;
+      return SizedBox(
+        width: targetWidth,
+        height: frameHeight,
+        child: Image(
+          image: provider,
+          width: targetWidth,
+          height: frameHeight,
+          fit: BoxFit.fill,
+          filterQuality: FilterQuality.high,
+          isAntiAlias: true,
+          frameBuilder: _buildImageFrame,
+        ),
+      );
+    }
+
+    final cropRect = edit.cropRect;
+    final fineAngle = edit.fineAngle;
+
+    final cropL = cropRect.left;
+    final cropT = cropRect.top;
+    final cropW = cropRect.width;
+    final cropH = cropRect.height;
+
+    final cropAspect = imgAspect * (cropW / cropH);
+
+    final frameWidth = targetWidth;
+    final frameHeight = targetWidth / cropAspect;
+
+    final fullW = frameWidth / cropW;
+    final fullH = frameHeight / cropH;
+
+    final cropCx = cropL + cropW / 2.0;
+    final cropCy = cropT + cropH / 2.0;
+
+    final shiftX = (0.5 - cropCx) * fullW;
+    final shiftY = (0.5 - cropCy) * fullH;
+
+    final rad = fineAngle * math.pi / 180.0;
+    final cosA = math.cos(rad);
+    final sinA = math.sin(rad);
+
+    final corners = [
+      Offset(cropL, cropT),
+      Offset(cropL + cropW, cropT),
+      Offset(cropL, cropT + cropH),
+      Offset(cropL + cropW, cropT + cropH),
+    ];
+
+    double fillScale = 1.0;
+    if (fineAngle != 0.0) {
+      for (final c in corners) {
+        final dx = c.dx - 0.5;
+        final dy = c.dy - 0.5;
+        final u = dx * cosA + dy * (1.0 / imgAspect) * sinA;
+        final v = -dx * imgAspect * sinA + dy * cosA;
+        final reqX = 2.0 * u.abs();
+        final reqY = 2.0 * v.abs();
+        if (reqX > fillScale) fillScale = reqX;
+        if (reqY > fillScale) fillScale = reqY;
+      }
+    }
+
+    return ClipRect(
+      child: SizedBox(
+        width: frameWidth,
+        height: frameHeight,
+        child: Stack(
+          children: [
+            Positioned(
+              left: (frameWidth - fullW) / 2.0 + shiftX,
+              top: (frameHeight - fullH) / 2.0 + shiftY,
+              width: fullW,
+              height: fullH,
+              child: Transform.scale(
+                scale: fillScale,
+                alignment: Alignment.center,
+                child: Transform.rotate(
+                  angle: rad,
+                  alignment: Alignment.center,
+                  child: Image(
+                    image: provider,
+                    width: fullW,
+                    height: fullH,
+                    fit: BoxFit.fill,
+                    filterQuality: FilterQuality.high,
+                    isAntiAlias: true,
+                    frameBuilder: _buildImageFrame,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final provider = _getImageProvider();
+
     // 2800 Fixed width architecture
     final canvas = Container(
       width: 2800,
@@ -86,29 +241,7 @@ class _PosterCanvasState extends State<PosterCanvas> {
             padding: const EdgeInsets.symmetric(horizontal: 200),
             child: RotatedBox(
               quarterTurns: widget.imageRotation,
-              child: widget.webImageBytes != null
-                  ? Image.memory(
-                      widget.webImageBytes!,
-                      width: (widget.imageRotation % 2 != 0) ? null : 2400,
-                      height: (widget.imageRotation % 2 != 0) ? 2400 : null,
-                      fit: BoxFit.contain,
-                      frameBuilder: _buildImageFrame,
-                    )
-                  : kIsWeb 
-                      ? Image.network(
-                          widget.imagePath,
-                          width: (widget.imageRotation % 2 != 0) ? null : 2400,
-                          height: (widget.imageRotation % 2 != 0) ? 2400 : null,
-                          fit: BoxFit.contain,
-                          frameBuilder: _buildImageFrame,
-                        )
-                      : Image.file(
-                          File(widget.imagePath),
-                          width: (widget.imageRotation % 2 != 0) ? null : 2400,
-                          height: (widget.imageRotation % 2 != 0) ? 2400 : null,
-                          fit: BoxFit.contain,
-                          frameBuilder: _buildImageFrame,
-                        ),
+              child: _buildCroppedPhotoWidget(provider),
             ),
           ),
           const SizedBox(height: 320),

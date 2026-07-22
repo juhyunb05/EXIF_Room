@@ -29,6 +29,9 @@ class PosterProject extends HiveObject {
   @HiveField(7)
   Uint8List? thumbnailBytes;
 
+  @HiveField(8)
+  int? categoryId;
+
   PosterProject({
     this.id,
     required this.originalImagePath,
@@ -38,5 +41,6 @@ class PosterProject extends HiveObject {
     this.exported = false,
     this.webExportedImageBytes,
     this.thumbnailBytes,
+    this.categoryId,
   });
 }
