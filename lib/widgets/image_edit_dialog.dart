@@ -281,7 +281,7 @@ class _ImageEditDialogState extends State<ImageEditDialog> {
                     Icon(Icons.tune_rounded, color: AppTheme.uiWhite, size: 24),
                     SizedBox(width: 10),
                     Text(
-                      '사진 편집',
+                      '편집',
                       style: TextStyle(
                         fontFamily: 'Pretendard',
                         fontSize: 18,
@@ -404,12 +404,8 @@ class _ImageEditDialogState extends State<ImageEditDialog> {
         ? '+${_fineAngle.toStringAsFixed(1)}°'
         : '${_fineAngle.toStringAsFixed(1)}°';
 
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF262626),
-        borderRadius: BorderRadius.circular(16),
-      ),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -417,29 +413,45 @@ class _ImageEditDialogState extends State<ImageEditDialog> {
           Row(
             children: [
               Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      _buildRatioChip('원본', CropRatioType.original),
-                      _buildRatioChip('자유', CropRatioType.custom),
-                      _buildRatioChip('1:1', CropRatioType.ratio1x1),
-                      _buildRatioChip(_isPortrait ? '2:3' : '3:2', CropRatioType.ratio3x2),
-                      _buildRatioChip(_isPortrait ? '3:4' : '4:3', CropRatioType.ratio4x3),
-                      _buildRatioChip(_isPortrait ? '9:16' : '16:9', CropRatioType.ratio16x9),
-                    ],
+                child: ShaderMask(
+                  shaderCallback: (Rect bounds) {
+                    return const LinearGradient(
+                      begin: Alignment.centerLeft,
+                      end: Alignment.centerRight,
+                      colors: [
+                        Colors.transparent,
+                        Colors.white,
+                        Colors.white,
+                        Colors.transparent,
+                      ],
+                      stops: [0.0, 0.06, 0.94, 1.0],
+                    ).createShader(bounds);
+                  },
+                  blendMode: BlendMode.dstIn,
+                  child: SingleChildScrollView(
+                    scrollDirection: Axis.horizontal,
+                    child: Row(
+                      children: [
+                        _buildRatioChip('원본', CropRatioType.original),
+                        _buildRatioChip('자유', CropRatioType.custom),
+                        _buildRatioChip(_isPortrait ? '3:4' : '4:3', CropRatioType.ratio4x3),
+                        _buildRatioChip(_isPortrait ? '2:3' : '3:2', CropRatioType.ratio3x2),
+                        _buildRatioChip('1:1', CropRatioType.ratio1x1),
+                        _buildRatioChip(_isPortrait ? '9:16' : '16:9', CropRatioType.ratio16x9),
+                      ],
+                    ),
                   ),
                 ),
               ),
               const SizedBox(width: 8),
-              Container(width: 1, height: 26, color: Colors.white24),
+              Container(width: 1, height: 24, color: Colors.white24),
               const SizedBox(width: 8),
               HoverInteraction(
                 child: InkWell(
                   onTap: _toggleOrientation,
                   borderRadius: BorderRadius.circular(12),
                   child: Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+                    padding: const EdgeInsets.all(8),
                     decoration: BoxDecoration(
                       color: const Color(0xFF3A3A3C),
                       borderRadius: BorderRadius.circular(12),
@@ -447,25 +459,10 @@ class _ImageEditDialogState extends State<ImageEditDialog> {
                         color: AppTheme.uiWhite.withAlpha(50),
                       ),
                     ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          _isPortrait ? Icons.stay_current_portrait_rounded : Icons.stay_current_landscape_rounded,
-                          color: AppTheme.uiWhite,
-                          size: 16,
-                        ),
-                        const SizedBox(width: 5),
-                        Text(
-                          _isPortrait ? '세로' : '가로',
-                          style: const TextStyle(
-                            fontFamily: 'Pretendard',
-                            fontSize: 13,
-                            fontWeight: FontWeight.w600,
-                            color: AppTheme.uiWhite,
-                          ),
-                        ),
-                      ],
+                    child: Icon(
+                      _isPortrait ? Icons.stay_current_portrait_rounded : Icons.stay_current_landscape_rounded,
+                      color: AppTheme.uiWhite,
+                      size: 18,
                     ),
                   ),
                 ),
@@ -473,8 +470,6 @@ class _ImageEditDialogState extends State<ImageEditDialog> {
             ],
           ),
           const SizedBox(height: 12),
-          Divider(height: 1, color: AppTheme.uiWhite.withAlpha(20)),
-          const SizedBox(height: 10),
           // Row 2: Fine Rotation Slider + Angle readout badge
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -484,7 +479,7 @@ class _ImageEditDialogState extends State<ImageEditDialog> {
                   Icon(Icons.rotate_right_rounded, color: Color(0xFFA0A0A0), size: 16),
                   SizedBox(width: 6),
                   Text(
-                    '미세 회전 (수평 맞춤)',
+                    '회전 (수평 맞춤)',
                     style: TextStyle(
                       fontFamily: 'Pretendard',
                       fontSize: 13,
@@ -535,50 +530,18 @@ class _ImageEditDialogState extends State<ImageEditDialog> {
               ),
             ],
           ),
-          const SizedBox(height: 4),
-          Row(
-            children: [
-              IconButton(
-                icon: const Icon(Icons.remove_circle_outline_rounded, color: AppTheme.uiWhite, size: 20),
-                onPressed: () {
-                  setState(() {
-                    _fineAngle = (_fineAngle - 0.5).clamp(-45.0, 45.0);
-                  });
-                },
-              ),
-              Expanded(
-                child: SliderTheme(
-                  data: SliderTheme.of(context).copyWith(
-                    activeTrackColor: AppTheme.uiWhite,
-                    inactiveTrackColor: Colors.white24,
-                    thumbColor: AppTheme.uiWhite,
-                    overlayColor: AppTheme.uiWhite.withAlpha(40),
-                    trackHeight: 3,
-                  ),
-                  child: Slider(
-                    value: _fineAngle,
-                    min: -45.0,
-                    max: 45.0,
-                    divisions: 180,
-                    onChangeStart: (_) => setState(() => _isAdjustingAngle = true),
-                    onChangeEnd: (_) => setState(() => _isAdjustingAngle = false),
-                    onChanged: (val) {
-                      setState(() {
-                        _fineAngle = val;
-                      });
-                    },
-                  ),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.add_circle_outline_rounded, color: AppTheme.uiWhite, size: 20),
-                onPressed: () {
-                  setState(() {
-                    _fineAngle = (_fineAngle + 0.5).clamp(-45.0, 45.0);
-                  });
-                },
-              ),
-            ],
+          const SizedBox(height: 8),
+          _RulerSlider(
+            value: _fineAngle,
+            min: -45.0,
+            max: 45.0,
+            onChangeStart: () => setState(() => _isAdjustingAngle = true),
+            onChangeEnd: () => setState(() => _isAdjustingAngle = false),
+            onChanged: (val) {
+              setState(() {
+                _fineAngle = val;
+              });
+            },
           ),
         ],
       ),
@@ -929,5 +892,160 @@ class _EditOverlayPainter extends CustomPainter {
         oldDelegate.imageRect != imageRect ||
         oldDelegate.activeHandle != activeHandle ||
         oldDelegate.isAdjustingAngle != isAdjustingAngle;
+  }
+}
+
+class _RulerSlider extends StatefulWidget {
+  final double value;
+  final double min;
+  final double max;
+  final ValueChanged<double> onChanged;
+  final VoidCallback? onChangeStart;
+  final VoidCallback? onChangeEnd;
+
+  const _RulerSlider({
+    required this.value,
+    required this.min,
+    required this.max,
+    required this.onChanged,
+    this.onChangeStart,
+    this.onChangeEnd,
+  });
+
+  @override
+  State<_RulerSlider> createState() => _RulerSliderState();
+}
+
+class _RulerSliderState extends State<_RulerSlider> {
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 48,
+      child: Container(
+        decoration: BoxDecoration(
+          color: const Color(0xFF2A2A2E).withAlpha(180),
+          borderRadius: BorderRadius.circular(24),
+        ),
+        child: GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onHorizontalDragStart: (_) {
+            widget.onChangeStart?.call();
+          },
+          onHorizontalDragUpdate: (details) {
+            const pixelsPerDegree = 7.0;
+            final deltaDegrees = -details.delta.dx / pixelsPerDegree;
+            final newValue = (widget.value + deltaDegrees).clamp(widget.min, widget.max);
+            widget.onChanged(double.parse(newValue.toStringAsFixed(1)));
+          },
+          onHorizontalDragEnd: (_) {
+            widget.onChangeEnd?.call();
+          },
+          child: ShaderMask(
+            shaderCallback: (Rect bounds) {
+              return const LinearGradient(
+                begin: Alignment.centerLeft,
+                end: Alignment.centerRight,
+                colors: [
+                  Colors.transparent,
+                  Colors.white,
+                  Colors.white,
+                  Colors.transparent,
+                ],
+                stops: [0.0, 0.18, 0.82, 1.0],
+              ).createShader(bounds);
+            },
+            blendMode: BlendMode.dstIn,
+            child: CustomPaint(
+              painter: _RulerPainter(
+                value: widget.value,
+                min: widget.min,
+                max: widget.max,
+              ),
+              child: const SizedBox.expand(),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RulerPainter extends CustomPainter {
+  final double value;
+  final double min;
+  final double max;
+
+  _RulerPainter({
+    required this.value,
+    required this.min,
+    required this.max,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final centerX = size.width / 2;
+    final centerY = size.height / 2;
+    const pixelsPerDegree = 7.0;
+
+    final minorTickPaint = Paint()
+      ..color = Colors.white.withAlpha(50)
+      ..strokeWidth = 1.0
+      ..strokeCap = StrokeCap.round;
+
+    final tick5Paint = Paint()
+      ..color = Colors.white.withAlpha(120)
+      ..strokeWidth = 1.4
+      ..strokeCap = StrokeCap.round;
+
+    final tick10Paint = Paint()
+      ..color = Colors.white.withAlpha(180)
+      ..strokeWidth = 1.8
+      ..strokeCap = StrokeCap.round;
+
+    final centerIndicatorPaint = Paint()
+      ..color = const Color(0xFF4C8CFF)
+      ..strokeWidth = 2.5
+      ..strokeCap = StrokeCap.round;
+
+    final visibleDegreesRange = (size.width / (2 * pixelsPerDegree)).ceil() + 2;
+    final startDeg = (value - visibleDegreesRange).floor().clamp(min.floor(), max.floor());
+    final endDeg = (value + visibleDegreesRange).ceil().clamp(min.ceil(), max.ceil());
+
+    for (int deg = startDeg; deg <= endDeg; deg++) {
+      final x = centerX + (deg - value) * pixelsPerDegree;
+      if (x < 0 || x > size.width) continue;
+
+      final double tickHeight;
+      final Paint paint;
+
+      if (deg % 10 == 0) {
+        tickHeight = 22.0;
+        paint = tick10Paint;
+      } else if (deg % 5 == 0) {
+        tickHeight = 14.0;
+        paint = tick5Paint;
+      } else {
+        tickHeight = 8.0;
+        paint = minorTickPaint;
+      }
+
+      canvas.drawLine(
+        Offset(x, centerY - tickHeight / 2),
+        Offset(x, centerY + tickHeight / 2),
+        paint,
+      );
+    }
+
+    const centerLineHeight = 24.0;
+    canvas.drawLine(
+      Offset(centerX, centerY - centerLineHeight / 2),
+      Offset(centerX, centerY + centerLineHeight / 2),
+      centerIndicatorPaint,
+    );
+  }
+
+  @override
+  bool shouldRepaint(covariant _RulerPainter oldDelegate) {
+    return oldDelegate.value != value || oldDelegate.min != min || oldDelegate.max != max;
   }
 }
