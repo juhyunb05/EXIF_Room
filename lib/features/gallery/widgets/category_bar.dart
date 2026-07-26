@@ -80,16 +80,17 @@ class CategoryBar extends StatelessWidget {
                   ),
                 ),
               ),
-            HoverInteraction(
-              child: GestureDetector(
-                onTap: onAddCategory,
-                behavior: HitTestBehavior.opaque,
-                child: const Padding(
-                  padding: EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
-                  child: Icon(Icons.add, color: Color(0xFFF0F4F8), size: 22),
+            if (categories.length < 5)
+              HoverInteraction(
+                child: GestureDetector(
+                  onTap: onAddCategory,
+                  behavior: HitTestBehavior.opaque,
+                  child: const Padding(
+                    padding: EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
+                    child: Icon(Icons.add, color: Color(0xFFF0F4F8), size: 22),
+                  ),
                 ),
               ),
-            ),
           ],
         );
       },

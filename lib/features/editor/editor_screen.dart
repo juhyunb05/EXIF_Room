@@ -554,14 +554,24 @@ class _EditorScreenState extends State<EditorScreen> {
     Uint8List? sourceBytes = widget.webImageBytes;
     if (sourceBytes == null) {
       if (kIsWeb) {
-        final response = await http.get(Uri.parse(widget.imagePath));
-        sourceBytes = response.bodyBytes;
+        try {
+          final response = await http.get(Uri.parse(widget.imagePath));
+          if (response.statusCode >= 200 && response.statusCode < 300) {
+            sourceBytes = response.bodyBytes;
+          }
+        } catch (e) {
+          debugPrint('Failed to fetch web image bytes: $e');
+        }
       } else {
-        sourceBytes = await File(widget.imagePath).readAsBytes();
+        try {
+          sourceBytes = await File(widget.imagePath).readAsBytes();
+        } catch (e) {
+          debugPrint('Failed to read image bytes: $e');
+        }
       }
     }
 
-    if (!mounted || sourceBytes.isEmpty) return;
+    if (!mounted || sourceBytes == null || sourceBytes.isEmpty) return;
 
     final result = await ImageEditDialog.show(
       context,

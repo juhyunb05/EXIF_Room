@@ -139,9 +139,10 @@ class _ProjectContextMenuState extends State<ProjectContextMenu> with SingleTick
                     CurvedAnimation(parent: _controller, curve: Curves.easeOutBack),
                   ),
                   child: Material(
-                    color: const Color(0xFFF0F4F8),
-                    borderRadius: BorderRadius.circular(30),
+                    color: const Color(0xFF1E1E1E),
+                    borderRadius: BorderRadius.circular(100),
                     elevation: 8,
+                    shadowColor: Colors.black,
                     child: Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                       child: Row(
@@ -149,7 +150,8 @@ class _ProjectContextMenuState extends State<ProjectContextMenu> with SingleTick
                         children: [
                         HoverInteraction(
                           child: IconButton(
-                            icon: const Icon(Icons.arrow_downward_rounded, color: Colors.black87),
+                            icon: const Icon(Icons.arrow_downward_rounded, color: Color(0xFFF0F4F8)),
+                            tooltip: '저장/다운로드',
                             onPressed: () async {
                               Navigator.pop(context);
                               final path = widget.project.exportedImagePath ?? widget.project.originalImagePath;
@@ -173,7 +175,7 @@ class _ProjectContextMenuState extends State<ProjectContextMenu> with SingleTick
                         ),
                         HoverInteraction(
                           child: IconButton(
-                            icon: const Icon(Icons.folder_outlined, color: Colors.black87),
+                            icon: const Icon(Icons.folder_outlined, color: Color(0xFFF0F4F8)),
                             tooltip: '분류',
                             onPressed: widget.onAssignCategory,
                           ),
@@ -181,7 +183,8 @@ class _ProjectContextMenuState extends State<ProjectContextMenu> with SingleTick
                         if (!kIsWeb && !Platform.isWindows)
                           HoverInteraction(
                             child: IconButton(
-                              icon: const Icon(Icons.share_rounded, color: Colors.black87),
+                              icon: const Icon(Icons.share_rounded, color: Color(0xFFF0F4F8)),
+                              tooltip: '공유',
                               onPressed: () {
                                 Navigator.pop(context);
                                 final path = widget.project.exportedImagePath ?? widget.project.originalImagePath;
@@ -191,7 +194,8 @@ class _ProjectContextMenuState extends State<ProjectContextMenu> with SingleTick
                           ),
                         HoverInteraction(
                           child: IconButton(
-                            icon: const Icon(Icons.delete_outline_rounded, color: Colors.red),
+                            icon: const Icon(Icons.delete_outline_rounded, color: Color(0xFFFF453A)),
+                            tooltip: '삭제',
                             onPressed: widget.onDelete,
                           ),
                         ),

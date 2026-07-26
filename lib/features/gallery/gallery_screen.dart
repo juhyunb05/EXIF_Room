@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_svg/flutter_svg.dart';
@@ -139,7 +140,6 @@ class _GalleryScreenState extends State<GalleryScreen> {
       }
 
       final internalPath = kIsWeb ? currentPath : await FileManagerService.copyToInternalStorage(currentPath);
-      final exif = await ExifService.extractExif(selectedPath);
       Uint8List? webBytes;
       if (kIsWeb) {
         try {
@@ -149,6 +149,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
           debugPrint('Failed to read web image bytes: $e');
         }
       }
+
+      final exif = await ExifService.extractExif(selectedPath, bytes: webBytes);
 
       if (mounted) {
         final result = await Navigator.push(
@@ -546,15 +548,17 @@ class _GalleryScreenState extends State<GalleryScreen> {
                                   ),
                                   const SizedBox(height: 8),
                                 ],
-                                const SizedBox(height: 4),
-                                _buildAddCategoryOptionItem(
-                                  onTap: () {
-                                    Navigator.pop(dialogContext);
-                                    Future.microtask(() {
-                                      if (mounted) _showAddCategoryDialog(projectToAssign: project);
-                                    });
-                                  },
-                                ),
+                                if (categories.length < 5) ...[
+                                  const SizedBox(height: 4),
+                                  _buildAddCategoryOptionItem(
+                                    onTap: () {
+                                      Navigator.pop(dialogContext);
+                                      Future.microtask(() {
+                                        if (mounted) _showAddCategoryDialog(projectToAssign: project);
+                                      });
+                                    },
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -1041,6 +1045,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
       builder: (context, provider, child) {
         final displayedProjects = provider.filteredProjects;
         final isLoading = provider.isLoading;
+        final topPadding = MediaQuery.of(context).padding.top;
+        final double headerTop = topPadding > 0 ? topPadding + 10 : 20;
 
         return Scaffold(
           body: Center(
@@ -1054,8 +1060,8 @@ class _GalleryScreenState extends State<GalleryScreen> {
                     ),
                     child: CustomScrollView(
                       slivers: [
-                        const SliverPadding(
-                          padding: EdgeInsets.only(top: 84),
+                        SliverPadding(
+                          padding: EdgeInsets.only(top: headerTop + 64),
                         ),
                         if (isLoading || displayedProjects.isEmpty)
                           _buildEmptyState(provider.selectedCategoryId != null)
@@ -1072,7 +1078,7 @@ class _GalleryScreenState extends State<GalleryScreen> {
                     top: 0,
                     left: 0,
                     right: 0,
-                    height: 90,
+                    height: headerTop + 70,
                     child: IgnorePointer(
                       child: Container(
                         decoration: BoxDecoration(
@@ -1089,12 +1095,12 @@ class _GalleryScreenState extends State<GalleryScreen> {
                     ),
                   ),
                   Positioned(
-                    top: 20,
+                    top: headerTop,
                     left: 16,
                     right: 16,
                     child: Row(
                       children: [
-                        const SizedBox(width: 48),
+                        const SizedBox(width: 40),
                         Expanded(
                           child: Center(
                             child: Container(
@@ -1104,15 +1110,26 @@ class _GalleryScreenState extends State<GalleryScreen> {
                                 color: const Color(0xFF222222),
                                 borderRadius: BorderRadius.circular(22),
                               ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  CategoryBar(
+                              clipBehavior: Clip.antiAlias,
+                              child: ScrollConfiguration(
+                                behavior: ScrollConfiguration.of(context).copyWith(
+                                  dragDevices: {
+                                    PointerDeviceKind.touch,
+                                    PointerDeviceKind.mouse,
+                                    PointerDeviceKind.trackpad,
+                                    PointerDeviceKind.stylus,
+                                  },
+                                  scrollbars: false,
+                                ),
+                                child: SingleChildScrollView(
+                                  scrollDirection: Axis.horizontal,
+                                  physics: const BouncingScrollPhysics(),
+                                  child: CategoryBar(
                                     onAddCategory: _showAddCategoryDialog,
                                     onCategoryOptions: _showCategoryOptionsDialog,
                                     onInfoDialog: () => _showInfoDialog(context),
                                   ),
-                                ],
+                                ),
                               ),
                             ),
                           ),
@@ -1202,18 +1219,18 @@ class _GalleryScreenState extends State<GalleryScreen> {
                   color: Color(0xFFF0F4F8),
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                isCategorySelected
-                    ? '사진을 길게 누르거나 우클릭하면 나타나는 메뉴에서 분류를 지정할 수 있습니다.'
-                    : '사진을 생성하려면 하단의 + 버튼을 눌러주세요.',
-                style: const TextStyle(
-                  fontFamily: 'Pretendard',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w400,
-                  color: Color(0xFFF0F4F8),
+              if (!isCategorySelected) ...[
+                const SizedBox(height: 8),
+                const Text(
+                  '사진을 생성하려면 하단의 + 버튼을 눌러주세요.',
+                  style: TextStyle(
+                    fontFamily: 'Pretendard',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w400,
+                    color: Color(0xFFF0F4F8),
+                  ),
                 ),
-              ),
+              ],
             ],
           ),
         ),

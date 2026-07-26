@@ -1,6 +1,6 @@
 {
-    "name": "room",
-    "short_name": "room",
+    "name": "EXIF Room",
+    "short_name": "EXIF Room",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#000000",

@@ -6,27 +6,7 @@ import 'package:flutter/material.dart';
 import '../core/models/edit_data.dart';
 import '../theme/app_theme.dart';
 import 'hover_interaction.dart';
-import 'package:image/image.dart' as img_lib;
 
-Uint8List? _resizeImageBackground(Uint8List bytes) {
-  try {
-    final decoded = img_lib.decodeImage(bytes);
-    if (decoded != null) {
-      if (decoded.width > 2000 || decoded.height > 2000) {
-        final resized = img_lib.copyResize(
-          decoded,
-          width: decoded.width > decoded.height ? 2000 : null,
-          height: decoded.height >= decoded.width ? 2000 : null,
-          interpolation: img_lib.Interpolation.average,
-        );
-        return Uint8List.fromList(img_lib.encodeJpg(resized, quality: 85));
-      }
-    }
-  } catch (e) {
-    debugPrint('Background resize error: $e');
-  }
-  return null;
-}
 
 enum CropRatioType {
   original,
@@ -107,16 +87,7 @@ class _ImageEditDialogState extends State<ImageEditDialog> {
 
   Future<void> _loadImage() async {
     try {
-      Uint8List targetBytes = widget.imageBytes;
-      // Optimize large images in background isolate to prevent UI blocking
-      if (widget.imageBytes.lengthInBytes > 1024 * 1024 * 2) {
-        final resized = await compute(_resizeImageBackground, widget.imageBytes);
-        if (resized != null) {
-          targetBytes = resized;
-        }
-      }
-
-      final codec = await ui.instantiateImageCodec(targetBytes);
+      final codec = await ui.instantiateImageCodec(widget.imageBytes);
       final frame = await codec.getNextFrame();
       final image = frame.image;
       if (mounted) {

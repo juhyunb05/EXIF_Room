@@ -52,7 +52,7 @@ class MyApp extends StatelessWidget {
       ],
       child: ExcludeSemantics(
         child: MaterialApp(
-          title: 'Exif Room',
+          title: 'EXIF Room',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
           localizationsDelegates: const [

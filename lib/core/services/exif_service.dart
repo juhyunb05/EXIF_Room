@@ -16,10 +16,12 @@ class _GpsValue {
 class ExifService {
   static final Map<String, String?> _locationCache = {};
 
-  static Future<ExifData> extractExif(String imagePath) async {
+  static Future<ExifData> extractExif(String imagePath, {Uint8List? bytes}) async {
     Map<String, exif_lib.IfdTag> tags;
     try {
-      if (kIsWeb) {
+      if (bytes != null) {
+        tags = await exif_lib.readExifFromBytes(bytes);
+      } else if (kIsWeb) {
         final response = await http.get(Uri.parse(imagePath));
         if (response.statusCode < 200 || response.statusCode >= 300) {
           return ExifData();
@@ -164,7 +166,7 @@ class ExifService {
                     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
               },
       ).timeout(
-        const Duration(seconds: 4),
+        const Duration(milliseconds: 1000),
         onTimeout: () {
           Logger.d('Nominatim request timed out for $lat,$lon');
           return http.Response('', 504);

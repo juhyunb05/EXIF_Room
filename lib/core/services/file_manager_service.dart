@@ -56,7 +56,7 @@ class FileManagerService {
     }
     
     final ext = extension.startsWith('.') ? extension : '.$extension';
-    return "Room_${cameraPart}_$datePart$ext";
+    return "EXIFRoom_${cameraPart}_$datePart$ext";
   }
 
   static Future<void> shareOrSaveImage(
